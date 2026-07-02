@@ -1,0 +1,41 @@
+[package]
+name = "orbit-browser"
+version = "0.1.0"
+description = "Local browser runtime orchestrator for isolated Chrome profiles and automation tasks"
+authors = ["Orbit Browser contributors"]
+edition = "2021"
+license = "MIT"
+readme = "../README.md"
+
+[lib]
+name = "orbit_browser_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.1", features = [] }
+
+[dependencies]
+anyhow = "1.0"
+aes-gcm = "0.10"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+deno_core = "0.404.0"
+deno_error = "=0.7.1"
+dirs = "5.0"
+futures-util = "0.3"
+portpicker = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.33"
+tauri = { version = "2.2", features = [] }
+thiserror = "2.0"
+tokio = { version = "1.42", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = "0.26"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.11", features = ["serde", "v4"] }
+
+[features]
+default = []

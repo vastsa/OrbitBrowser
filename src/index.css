@@ -1,0 +1,425 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  background: #f8fafc;
+  color-scheme: light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 1280px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.13), transparent 28rem),
+    radial-gradient(circle at 90% 10%, rgba(249, 115, 22, 0.08), transparent 22rem),
+    linear-gradient(180deg, #ffffff 0%, #fbfefd 36%, #f0fdfa 100%);
+  overflow-x: auto;
+}
+
+#root {
+  height: 100vh;
+  min-width: 1280px;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color-scheme: inherit;
+}
+
+.app-shell,
+.app-shell * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.app-shell {
+  cursor: default;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+code,
+pre,
+.selectable,
+.selectable :where(p, span, div, pre, code, dd) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input::selection,
+textarea::selection,
+code::selection,
+pre::selection,
+.selectable::selection,
+.selectable *::selection {
+  background: rgba(20, 184, 166, 0.24);
+}
+
+input:enabled:not([readonly]):not([type="checkbox"]):not([type="radio"]),
+textarea:enabled:not([readonly]) {
+  cursor: text;
+}
+
+button:enabled,
+select:enabled,
+summary,
+input[type="checkbox"]:enabled,
+input[type="radio"]:enabled {
+  cursor: pointer;
+}
+
+input[readonly],
+textarea[readonly],
+.selectable,
+.selectable :where(p, span, div, pre, code, dd),
+code,
+pre {
+  cursor: default;
+}
+
+input[readonly],
+textarea[readonly] {
+  background-color: rgba(248, 250, 252, 0.9);
+  caret-color: transparent;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+button,
+select,
+summary,
+[role="button"],
+.non-selectable,
+.selectable .non-selectable {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+select option {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+select optgroup {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+select option:checked {
+  background-color: #ccfbf1;
+  color: #0f172a;
+}
+
+select option:disabled {
+  color: #94a3b8;
+}
+
+code,
+pre,
+textarea[data-code-editor="true"] {
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace,
+    monospace;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-line bg-white/95 shadow-panel;
+  }
+
+  .panel-elevated {
+    @apply rounded-xl border border-white/70 bg-white/90 shadow-elevated backdrop-blur;
+  }
+
+  .table-header {
+    @apply bg-ink-50/80 text-left text-xs font-semibold uppercase tracking-normal text-ink-500;
+  }
+
+  .table-cell {
+    @apply border-t border-line px-3 py-2 align-middle text-sm;
+  }
+
+  .table-action-header {
+    @apply sticky right-0 z-10 border-l border-line px-3 py-2 text-right shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.45)];
+    background-color: #f8fafc;
+  }
+
+  .table-action-cell {
+    @apply sticky right-0 z-[1] border-l border-t border-line px-3 py-2 align-middle text-right text-sm shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.45)];
+    background-color: #ffffff;
+  }
+
+  tbody tr:hover .table-action-cell {
+    background-color: #f8fafc;
+  }
+
+  tbody tr.bg-blue-50 .table-action-cell {
+    background-color: #eff6ff;
+  }
+
+  .table-scroll {
+    @apply min-h-0 overflow-auto;
+  }
+
+  .table-scroll > table {
+    @apply min-w-[980px];
+  }
+
+  .environment-table-scroll > table {
+    @apply min-w-[1460px];
+  }
+
+  .viewport-page {
+    @apply grid h-full min-h-0 w-full gap-3 overflow-hidden;
+  }
+
+  .scroll-panel {
+    @apply min-h-0 overflow-auto;
+  }
+
+  .table-row-hover {
+    @apply transition-colors duration-150 hover:bg-ink-50;
+  }
+
+  .control-focus {
+    @apply outline-none transition-colors duration-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+  }
+
+  .mono-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e2e8f0;
+    background: #0b1120;
+    color-scheme: dark;
+  }
+
+  html {
+    background: #0b1120;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 12% 0%, rgba(20, 184, 166, 0.18), transparent 30rem),
+      radial-gradient(circle at 90% 8%, rgba(249, 115, 22, 0.1), transparent 24rem),
+      linear-gradient(180deg, #0b1120 0%, #0f172a 52%, #111827 100%);
+  }
+
+  .text-ink-900 {
+    color: #e5edf7;
+  }
+
+  select {
+    background-color: rgba(15, 23, 42, 0.82);
+    border-color: rgba(100, 116, 139, 0.4);
+    color: #e5edf7;
+  }
+
+  select:disabled {
+    background-color: rgba(30, 41, 59, 0.72);
+    color: #8fa1b6;
+  }
+
+  select option {
+    background-color: #0f172a;
+    color: #e5edf7;
+  }
+
+  select optgroup {
+    background-color: #0f172a;
+    color: #e5edf7;
+  }
+
+  select option:checked {
+    background-color: #115e59;
+    color: #f8fafc;
+  }
+
+  select option:disabled {
+    color: #64748b;
+  }
+
+  .text-ink-700 {
+    color: #c7d2df;
+  }
+
+  .text-ink-500,
+  .placeholder\:text-ink-500::placeholder,
+  .disabled\:text-ink-500:disabled {
+    color: #8fa1b6;
+  }
+
+  .text-brand-700,
+  .text-brand-600 {
+    color: #5eead4;
+  }
+
+  .text-ok {
+    color: #86efac;
+  }
+
+  .text-warn {
+    color: #fcd34d;
+  }
+
+  .text-danger {
+    color: #fca5a5;
+  }
+
+  .border-line,
+  .border-ink-300 {
+    border-color: rgba(100, 116, 139, 0.4);
+  }
+
+  .border-white\/70 {
+    border-color: rgba(148, 163, 184, 0.18);
+  }
+
+  .border-brand-100 {
+    border-color: rgba(45, 212, 191, 0.28);
+  }
+
+  .bg-white,
+  .bg-white\/70,
+  .bg-white\/72,
+  .bg-white\/75,
+  .bg-white\/80,
+  .bg-white\/90,
+  .bg-white\/95 {
+    background-color: rgba(15, 23, 42, 0.82);
+  }
+
+  .bg-ink-50,
+  .bg-ink-50\/60,
+  .bg-ink-50\/70,
+  .bg-ink-50\/80,
+  .disabled\:bg-ink-50:disabled {
+    background-color: rgba(30, 41, 59, 0.72);
+  }
+
+  input[readonly],
+  textarea[readonly] {
+    background-color: rgba(30, 41, 59, 0.72);
+  }
+
+  input::selection,
+  textarea::selection,
+  code::selection,
+  pre::selection,
+  .selectable::selection,
+  .selectable *::selection {
+    background: rgba(45, 212, 191, 0.32);
+  }
+
+  .bg-ink-100 {
+    background-color: rgba(51, 65, 85, 0.8);
+  }
+
+  .bg-brand-50,
+  .bg-blue-50 {
+    background-color: rgba(20, 184, 166, 0.16);
+  }
+
+  .bg-green-50 {
+    background-color: rgba(22, 163, 74, 0.14);
+  }
+
+  .bg-amber-50 {
+    background-color: rgba(245, 158, 11, 0.16);
+  }
+
+  .bg-red-50 {
+    background-color: rgba(220, 38, 38, 0.14);
+  }
+
+  .bg-teal-50 {
+    background-color: rgba(20, 184, 166, 0.14);
+  }
+
+  .table-row-hover:hover {
+    background-color: rgba(20, 184, 166, 0.08);
+  }
+
+  .table-action-header {
+    background-color: #1e293b;
+  }
+
+  .table-action-cell {
+    background-color: #0f172a;
+  }
+
+  tbody tr:hover .table-action-cell {
+    background-color: #1e293b;
+  }
+
+  tbody tr.bg-blue-50 .table-action-cell {
+    background-color: #12313a;
+  }
+
+  .hover\:bg-ink-50:hover {
+    background-color: rgba(30, 41, 59, 0.78) !important;
+  }
+
+  .hover\:bg-white:hover {
+    background-color: rgba(51, 65, 85, 0.72) !important;
+  }
+
+  .hover\:bg-brand-50:hover {
+    background-color: rgba(20, 184, 166, 0.18) !important;
+  }
+
+  .hover\:text-ink-900:hover {
+    color: #f8fafc !important;
+  }
+
+  .hover\:text-brand-700:hover {
+    color: #99f6e4 !important;
+  }
+
+  .shadow-panel {
+    --tw-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+    --tw-shadow-colored: 0 1px 2px var(--tw-shadow-color);
+  }
+
+  .shadow-elevated {
+    --tw-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+    --tw-shadow-colored: 0 18px 46px var(--tw-shadow-color);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

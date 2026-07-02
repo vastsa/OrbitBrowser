@@ -1,0 +1,769 @@
+use crate::app_state::AppState;
+use crate::automation::cancellation::CancellationToken;
+use crate::automation::permissions::TaskPermissions;
+use crate::browser::cdp_client::{CdpPage, PageSnapshot};
+use crate::browser::timezone_controller;
+use crate::domain::artifact::RunArtifact;
+use crate::domain::environment::Environment;
+use crate::domain::run::{RunLog, TaskRun};
+use crate::errors::{AppError, AppResult};
+use crate::storage::{artifact_repo, log_repo};
+use deno_core::{extension, op2, resolve_url, JsRuntime, OpState, RuntimeOptions};
+use deno_error::JsErrorBox;
+use serde_json::{json, Value};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::Mutex;
+
+#[derive(Clone)]
+pub struct ScriptRuntimeContext {
+    inner: Arc<Mutex<ScriptRuntimeState>>,
+    env_json: Arc<Value>,
+}
+
+pub struct ScriptRuntimeInput {
+    pub state: AppState,
+    pub app: Option<AppHandle>,
+    pub run: TaskRun,
+    pub script: String,
+    pub environment: Environment,
+    pub permissions: TaskPermissions,
+    pub cdp_port: u16,
+    pub artifacts_dir: PathBuf,
+    pub cancellation: CancellationToken,
+    pub timeout: Duration,
+}
+
+struct ScriptRuntimeState {
+    state: AppState,
+    app: Option<AppHandle>,
+    run: TaskRun,
+    environment: Environment,
+    permissions: TaskPermissions,
+    page: Option<CdpPage>,
+    cdp_port: u16,
+    artifacts_dir: PathBuf,
+    cancellation: CancellationToken,
+}
+
+extension!(
+    orbit_runtime,
+    ops = [
+        op_orbit_env,
+        op_orbit_page_goto,
+        op_orbit_page_click,
+        op_orbit_page_type,
+        op_orbit_page_wait,
+        op_orbit_page_evaluate,
+        op_orbit_page_title,
+        op_orbit_page_url,
+        op_orbit_page_screenshot,
+        op_orbit_log,
+        op_orbit_output_json,
+        op_orbit_output_text,
+        op_orbit_sleep,
+    ],
+    options = {
+        context: ScriptRuntimeContext,
+    },
+    state = |state, options| {
+        state.put(options.context);
+    }
+);
+
+pub async fn execute_script(input: ScriptRuntimeInput) -> AppResult<PageSnapshot> {
+    let timeout = input.timeout;
+    let cancellation = input.cancellation.clone();
+    let join = tokio::task::spawn_blocking(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| AppError::new("script_runtime_error", err.to_string()))?;
+        runtime.block_on(execute_script_on_local_runtime(input))
+    });
+
+    match tokio::time::timeout(timeout + Duration::from_secs(2), join).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(err)) => Err(AppError::new(
+            "script_runtime_error",
+            format!("Script thread failed: {err}"),
+        )),
+        Err(_) => {
+            cancellation.cancel();
+            Err(AppError::new("task_timeout", "Task execution timed out").retryable(true))
+        }
+    }
+}
+
+async fn execute_script_on_local_runtime(input: ScriptRuntimeInput) -> AppResult<PageSnapshot> {
+    let ScriptRuntimeInput {
+        state,
+        app,
+        run,
+        script,
+        environment,
+        permissions,
+        cdp_port,
+        artifacts_dir,
+        cancellation,
+        timeout,
+    } = input;
+
+    let env_json = environment_json(&environment);
+    let mut page = CdpPage::connect(cdp_port, environment.start_url.as_deref()).await?;
+    apply_environment_overrides(&mut page, &environment).await?;
+    let context = ScriptRuntimeContext {
+        inner: Arc::new(Mutex::new(ScriptRuntimeState {
+            state,
+            app,
+            run: run.clone(),
+            environment,
+            permissions,
+            page: None,
+            cdp_port,
+            artifacts_dir,
+            cancellation: cancellation.clone(),
+        })),
+        env_json: Arc::new(env_json),
+    };
+
+    page.snapshot().await?;
+    {
+        let mut guard = context.inner.lock().await;
+        guard.page = Some(page);
+    }
+
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+        extensions: vec![orbit_runtime::init(context.clone())],
+        ..Default::default()
+    });
+    runtime
+        .execute_script("orbit_bootstrap.js", bootstrap_script())
+        .map_err(app_error_from_runtime)?;
+
+    let terminated = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
+    let monitor = spawn_termination_monitor(
+        runtime.v8_isolate().thread_safe_handle(),
+        cancellation.clone(),
+        timeout,
+        terminated.clone(),
+        finished.clone(),
+    );
+
+    let module = resolve_url("file:///orbit-task.js")
+        .map_err(|err| AppError::new("script_runtime_error", err.to_string()))?;
+    let task_source = wrap_script_source(&script);
+    let module_id = runtime
+        .load_main_es_module_from_code(&module, task_source)
+        .await
+        .map_err(app_error_from_runtime)?;
+    let evaluation = runtime.mod_evaluate(module_id);
+    let event_loop_result = runtime.run_event_loop(Default::default()).await;
+    finished.store(true, Ordering::SeqCst);
+    let _ = monitor.join();
+
+    if cancellation.is_cancelled() {
+        return Err(AppError::new("task_cancelled", "Task was cancelled"));
+    }
+    if terminated.load(Ordering::SeqCst) {
+        return Err(AppError::new("task_timeout", "Task execution timed out").retryable(true));
+    }
+
+    event_loop_result.map_err(app_error_from_runtime)?;
+    evaluation.await.map_err(app_error_from_runtime)?;
+
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled()?;
+    let page = guard
+        .page
+        .as_mut()
+        .ok_or_else(|| AppError::new("script_runtime_error", "Page context has been released"))?;
+    page.snapshot().await
+}
+
+async fn apply_environment_overrides(
+    page: &mut CdpPage,
+    environment: &Environment,
+) -> AppResult<()> {
+    let timezone_id = page_timezone_id(environment);
+    let geolocation = page_geolocation(environment);
+    apply_page_overrides(page, timezone_id.as_deref(), geolocation).await
+}
+
+async fn apply_page_overrides(
+    page: &mut CdpPage,
+    timezone_id: Option<&str>,
+    geolocation: Option<(f64, f64, f64)>,
+) -> AppResult<()> {
+    if let Some(timezone_id) = timezone_id {
+        page.set_timezone_override(timezone_id).await?;
+    }
+    if let Some((latitude, longitude, accuracy)) = geolocation {
+        page.set_geolocation_override(latitude, longitude, accuracy)
+            .await?;
+    }
+    Ok(())
+}
+
+fn page_timezone_id(environment: &Environment) -> Option<String> {
+    environment
+        .timezone_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "auto")
+        .map(str::to_string)
+}
+
+fn page_geolocation(environment: &Environment) -> Option<(f64, f64, f64)> {
+    Some((
+        environment.geolocation_latitude?,
+        environment.geolocation_longitude?,
+        20.0,
+    ))
+}
+
+#[op2]
+#[serde]
+fn op_orbit_env(op_state: Rc<RefCell<OpState>>) -> Result<serde_json::Value, JsErrorBox> {
+    Ok(runtime_context(&op_state).env_json.as_ref().clone())
+}
+
+#[op2]
+async fn op_orbit_page_goto(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] url: String,
+    #[serde] options: Option<serde_json::Value>,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let timeout = option_timeout(&options, 30_000);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .append_log("info", &format!("Opening page: {url}"), None)
+        .map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .goto(&url, Duration::from_millis(timeout))
+        .await
+        .map_err(js_error)?;
+    let timezone_id = page_timezone_id(&guard.environment);
+    let geolocation = page_geolocation(&guard.environment);
+    if geolocation.is_some() {
+        timezone_controller::grant_geolocation_permission(guard.cdp_port, &url)
+            .await
+            .map_err(js_error)?;
+    }
+    apply_page_overrides(
+        guard.page_mut().map_err(js_error)?,
+        timezone_id.as_deref(),
+        geolocation,
+    )
+    .await
+    .map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_page_click(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] selector: String,
+    #[serde] _options: Option<serde_json::Value>,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .click(&selector)
+        .await
+        .map_err(js_error)?;
+    guard
+        .append_log("debug", &format!("Clicked element: {selector}"), None)
+        .map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_page_type(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] selector: String,
+    #[string] text: String,
+    #[serde] _options: Option<serde_json::Value>,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .type_text(&selector, &text)
+        .await
+        .map_err(js_error)?;
+    guard
+        .append_log("debug", &format!("Typed text into: {selector}"), None)
+        .map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_page_wait(
+    op_state: Rc<RefCell<OpState>>,
+    #[serde] target: serde_json::Value,
+    #[serde] options: Option<serde_json::Value>,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let timeout = option_timeout(&options, 10_000);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    if let Some(ms) = target.as_u64() {
+        drop(guard);
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+        return Ok(());
+    }
+    let selector = target.as_str().ok_or_else(|| {
+        JsErrorBox::type_error("page.wait only accepts milliseconds or a selector")
+    })?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .wait_for_selector(selector, Duration::from_millis(timeout))
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+#[serde]
+async fn op_orbit_page_evaluate(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] expression: String,
+) -> Result<serde_json::Value, JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .evaluate(&expression)
+        .await
+        .map_err(js_error)
+}
+
+#[op2]
+#[string]
+async fn op_orbit_page_title(op_state: Rc<RefCell<OpState>>) -> Result<String, JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .title()
+        .await
+        .map_err(js_error)
+}
+
+#[op2]
+#[string]
+async fn op_orbit_page_url(op_state: Rc<RefCell<OpState>>) -> Result<String, JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard
+        .page_mut()
+        .map_err(js_error)?
+        .url()
+        .await
+        .map_err(js_error)
+}
+
+#[op2]
+async fn op_orbit_page_screenshot(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] label: String,
+    #[serde] _options: Option<serde_json::Value>,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let mut guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    let png = guard
+        .page_mut()
+        .map_err(js_error)?
+        .screenshot_png()
+        .await
+        .map_err(js_error)?;
+    guard.write_screenshot(&label, png).map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_log(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] level: String,
+    #[string] message: String,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard.append_log(&level, &message, None).map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_output_json(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] label: String,
+    #[serde] data: serde_json::Value,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard.write_json_output(&label, &data).map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_output_text(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] label: String,
+    #[string] text: String,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    let guard = context.inner.lock().await;
+    guard.ensure_not_cancelled().map_err(js_error)?;
+    guard.write_text_output(&label, &text).map_err(js_error)?;
+    Ok(())
+}
+
+#[op2]
+async fn op_orbit_sleep(
+    op_state: Rc<RefCell<OpState>>,
+    #[smi] milliseconds: u32,
+) -> Result<(), JsErrorBox> {
+    let context = runtime_context(&op_state);
+    {
+        let guard = context.inner.lock().await;
+        guard.ensure_not_cancelled().map_err(js_error)?;
+    }
+    tokio::time::sleep(Duration::from_millis(milliseconds as u64)).await;
+    {
+        let guard = context.inner.lock().await;
+        guard.ensure_not_cancelled().map_err(js_error)?;
+    }
+    Ok(())
+}
+
+impl ScriptRuntimeState {
+    fn page_mut(&mut self) -> AppResult<&mut CdpPage> {
+        self.page
+            .as_mut()
+            .ok_or_else(|| AppError::new("script_runtime_error", "Page context is unavailable"))
+    }
+
+    fn ensure_not_cancelled(&self) -> AppResult<()> {
+        if self.cancellation.is_cancelled() {
+            Err(AppError::new("task_cancelled", "Task was cancelled"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn append_log(&self, level: &str, message: &str, data: Option<Value>) -> AppResult<RunLog> {
+        let normalized_level = match level {
+            "trace" | "debug" | "info" | "warn" | "error" => level,
+            _ => "info",
+        };
+        let log = log_repo::append(
+            self.state.db(),
+            &self.run.id,
+            normalized_level,
+            message,
+            data,
+        )?;
+        if let Some(app) = &self.app {
+            let _ = app.emit("run_log_appended", &log);
+        }
+        Ok(log)
+    }
+
+    fn write_screenshot(&self, label: &str, png: Vec<u8>) -> AppResult<()> {
+        let safe_label = safe_label(label);
+        let relative_path = format!("runs/{}/screenshots/{safe_label}.png", self.run.id);
+        let absolute_path = self.state.data_dir().join(&relative_path);
+        if let Some(parent) = absolute_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&absolute_path, png)?;
+        self.create_artifact("screenshot", label, &relative_path)?;
+        self.append_log(
+            "info",
+            &format!("Screenshot saved: {label}"),
+            Some(json!({ "path": relative_path })),
+        )?;
+        Ok(())
+    }
+
+    fn write_json_output(&self, label: &str, data: &Value) -> AppResult<()> {
+        let safe_label = safe_label(label);
+        let relative_path = format!("runs/{}/artifacts/{safe_label}.json", self.run.id);
+        let absolute_path = self
+            .artifacts_dir
+            .join("artifacts")
+            .join(format!("{safe_label}.json"));
+        write_json_file(&absolute_path, data)?;
+        self.create_artifact("json", label, &relative_path)?;
+        Ok(())
+    }
+
+    fn write_text_output(&self, label: &str, text: &str) -> AppResult<()> {
+        let safe_label = safe_label(label);
+        let relative_path = format!("runs/{}/artifacts/{safe_label}.txt", self.run.id);
+        let absolute_path = self
+            .artifacts_dir
+            .join("artifacts")
+            .join(format!("{safe_label}.txt"));
+        if let Some(parent) = absolute_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&absolute_path, text)?;
+        self.create_artifact("text", label, &relative_path)?;
+        Ok(())
+    }
+
+    fn create_artifact(&self, kind: &str, label: &str, path: &str) -> AppResult<RunArtifact> {
+        let artifact = artifact_repo::create(self.state.db(), &self.run.id, kind, label, path)?;
+        if let Some(app) = &self.app {
+            let _ = app.emit("run_artifact_created", &artifact);
+        }
+        Ok(artifact)
+    }
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return false;
+    }
+    if pattern == "*" || pattern == "<all_urls>" {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return pattern == value;
+    }
+
+    let mut remaining = value;
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+    let parts = pattern.split('*').filter(|part| !part.is_empty());
+    let mut first = true;
+
+    for part in parts {
+        if first && !starts_with_wildcard {
+            if !remaining.starts_with(part) {
+                return false;
+            }
+            remaining = &remaining[part.len()..];
+        } else if let Some(index) = remaining.find(part) {
+            remaining = &remaining[index + part.len()..];
+        } else {
+            return false;
+        }
+        first = false;
+    }
+
+    ends_with_wildcard || remaining.is_empty()
+}
+
+fn runtime_context(op_state: &Rc<RefCell<OpState>>) -> ScriptRuntimeContext {
+    let op_state = op_state.borrow();
+    op_state.borrow::<ScriptRuntimeContext>().clone()
+}
+
+fn spawn_termination_monitor(
+    isolate: deno_core::v8::IsolateHandle,
+    cancellation: CancellationToken,
+    timeout: Duration,
+    terminated: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + timeout;
+        while !finished.load(Ordering::SeqCst) {
+            if cancellation.is_cancelled() || Instant::now() >= deadline {
+                terminated.store(true, Ordering::SeqCst);
+                let _ = isolate.terminate_execution();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    })
+}
+
+fn wrap_script_source(script: &str) -> String {
+    script.to_string()
+}
+
+fn environment_json(environment: &Environment) -> Value {
+    json!({
+        "id": &environment.id,
+        "name": &environment.name,
+        "groupId": &environment.group_id,
+        "tags": &environment.tags,
+        "notes": &environment.notes,
+        "locale": &environment.locale,
+        "timezoneId": &environment.timezone_id,
+        "geolocation": {
+            "latitude": environment.geolocation_latitude,
+            "longitude": environment.geolocation_longitude
+        },
+        "identity": {
+            "userAgent": &environment.user_agent,
+            "platform": &environment.platform,
+            "webRtcProtection": environment.web_rtc_protection
+        },
+        "viewport": {
+            "width": environment.viewport_width,
+            "height": environment.viewport_height,
+            "deviceScaleFactor": environment.device_scale_factor
+        },
+        "proxy": {
+            "kind": &environment.proxy_config.kind,
+            "host": &environment.proxy_config.host,
+            "port": environment.proxy_config.port,
+            "hasAuth": environment.proxy_config.has_auth()
+        }
+    })
+}
+
+fn bootstrap_script() -> &'static str {
+    r#"
+(() => {
+  const ops = Deno.core.ops;
+  const coerceOptions = (value) => value && typeof value === "object" ? value : {};
+  const pageApi = Object.freeze({
+    goto: (url, options = {}) => ops.op_orbit_page_goto(String(url), coerceOptions(options)),
+    click: (selector, options = {}) => ops.op_orbit_page_click(String(selector), coerceOptions(options)),
+    type: (selector, text, options = {}) => ops.op_orbit_page_type(String(selector), String(text ?? ""), coerceOptions(options)),
+    wait: (target, options = {}) => ops.op_orbit_page_wait(target, coerceOptions(options)),
+    evaluate: (expression) => ops.op_orbit_page_evaluate(String(expression)),
+    title: () => ops.op_orbit_page_title(),
+    url: () => ops.op_orbit_page_url(),
+    screenshot: (label = "screenshot", options = {}) => ops.op_orbit_page_screenshot(String(label), coerceOptions(options)),
+  });
+  const logApi = Object.freeze({
+    trace: (message) => ops.op_orbit_log("trace", String(message ?? "")),
+    debug: (message) => ops.op_orbit_log("debug", String(message ?? "")),
+    info: (message) => ops.op_orbit_log("info", String(message ?? "")),
+    warn: (message) => ops.op_orbit_log("warn", String(message ?? "")),
+    error: (message) => ops.op_orbit_log("error", String(message ?? "")),
+  });
+  const runApi = Object.freeze({
+    outputJson: (label = "result", data = null) => ops.op_orbit_output_json(String(label), data),
+    outputText: (label = "output", text = "") => ops.op_orbit_output_text(String(label), String(text ?? "")),
+  });
+  const orbit = Object.freeze({
+    page: pageApi,
+    log: logApi,
+    run: runApi,
+    env: Object.freeze(ops.op_orbit_env()),
+    sleep: (ms) => ops.op_orbit_sleep(Math.max(0, Number(ms) || 0)),
+  });
+  Object.defineProperty(globalThis, "orbit", { value: orbit, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "page", { value: orbit.page, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "log", { value: orbit.log, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "run", { value: orbit.run, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "env", { value: orbit.env, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "sleep", { value: orbit.sleep, writable: false, configurable: false });
+})();
+"#
+}
+
+pub fn validate_script_surface(_script: &str) -> AppResult<()> {
+    Ok(())
+}
+
+fn option_timeout(options: &Option<Value>, default_ms: u64) -> u64 {
+    options
+        .as_ref()
+        .and_then(|value| value.get("timeout"))
+        .and_then(Value::as_u64)
+        .filter(|timeout| *timeout > 0)
+        .unwrap_or(default_ms)
+}
+
+fn safe_label(label: &str) -> String {
+    let safe = label
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if safe.is_empty() {
+        "artifact".to_string()
+    } else {
+        safe
+    }
+}
+
+fn write_json_file(path: &Path, data: &Value) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(data)?)?;
+    Ok(())
+}
+
+fn app_error_from_runtime(error: impl ToString) -> AppError {
+    AppError::new("script_runtime_error", error.to_string())
+}
+
+fn js_error(error: impl ToString) -> JsErrorBox {
+    JsErrorBox::generic(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validation_allows_script_surface_without_keyword_blocks() {
+        assert!(validate_script_surface("await page.goto('https://example.com')").is_ok());
+        assert!(validate_script_surface("fetch('https://example.com')").is_ok());
+        assert!(validate_script_surface("Deno.core.ops.op_read_file()").is_ok());
+    }
+
+    #[test]
+    fn safe_label_keeps_artifact_names_portable() {
+        assert_eq!(safe_label("home-page_1"), "home-page_1");
+        assert_eq!(safe_label("a/b:c"), "a_b_c");
+    }
+
+    #[test]
+    fn wildcard_match_supports_url_permission_patterns() {
+        assert!(wildcard_match(
+            "https://example.com/*",
+            "https://example.com/dashboard"
+        ));
+        assert!(wildcard_match("<all_urls>", "https://example.net"));
+        assert!(wildcard_match(
+            "https://*.example.com/path/*",
+            "https://api.example.com/path/list"
+        ));
+        assert!(!wildcard_match(
+            "https://example.com/*",
+            "https://example.org/dashboard"
+        ));
+    }
+}
