@@ -107,68 +107,62 @@ jobs:
     steps:
       - name: Create or update draft release
         id: release
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BODY: Multi-platform desktop bundles for macOS, Windows, and Linux.
-          RELEASE_NAME: Orbit Browser ${{ github.ref_name }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          PRERELEASE: ${{ contains(github.ref_name, '-') }}
-        run: |
-          set -euo pipefail
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tagName = context.ref.replace('refs/tags/', '');
+            const releaseName = `Orbit Browser ${tagName}`;
+            const prerelease = tagName.includes('-');
 
-          generated_notes="$(
-            gh api \
-              --method POST \
-              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-              -f tag_name="${RELEASE_TAG}" \
-              -f target_commitish="${GITHUB_SHA}" \
-              --jq '.body' 2>/dev/null || true
-          )"
+            let generatedNotes = '';
+            try {
+              const notes = await github.rest.repos.generateReleaseNotes({
+                owner,
+                repo,
+                tag_name: tagName,
+                target_commitish: context.sha,
+              });
+              generatedNotes = notes.data.body || '';
+            } catch (error) {
+              core.warning(`Could not generate release notes: ${error.message}`);
+            }
 
-          release_body="${RELEASE_BODY}"
-          if [ -n "${generated_notes}" ] && [ "${generated_notes}" != "null" ]; then
-            release_body="$(printf "%s\n\n%s" "${RELEASE_BODY}" "${generated_notes}")"
-          fi
+            const baseBody = process.env.RELEASE_BODY;
+            const body = generatedNotes ? `${baseBody}\n\n${generatedNotes}` : baseBody;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const existing = releases.find((release) => release.tag_name === tagName);
 
-          release_id="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-              --jq '.id' 2>/dev/null || true
-          )"
-          release_draft="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-              --jq '.draft' 2>/dev/null || true
-          )"
+            const release = existing
+              ? (await github.rest.repos.updateRelease({
+                  owner,
+                  repo,
+                  release_id: existing.id,
+                  tag_name: tagName,
+                  target_commitish: context.sha,
+                  name: releaseName,
+                  body,
+                  prerelease,
+                })).data
+              : (await github.rest.repos.createRelease({
+                  owner,
+                  repo,
+                  tag_name: tagName,
+                  target_commitish: context.sha,
+                  name: releaseName,
+                  body,
+                  draft: true,
+                  prerelease,
+                })).data;
 
-          if [ -n "${release_id}" ]; then
-            gh api \
-              --method PATCH \
-              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-              -f tag_name="${RELEASE_TAG}" \
-              -f target_commitish="${GITHUB_SHA}" \
-              -f name="${RELEASE_NAME}" \
-              -f body="${release_body}" \
-              -F prerelease="${PRERELEASE}" \
-              >/dev/null
-          else
-            release_id="$(
-              gh api \
-                --method POST \
-                "repos/${GITHUB_REPOSITORY}/releases" \
-                -f tag_name="${RELEASE_TAG}" \
-                -f target_commitish="${GITHUB_SHA}" \
-                -f name="${RELEASE_NAME}" \
-                -f body="${release_body}" \
-                -F draft=true \
-                -F prerelease="${PRERELEASE}" \
-                --jq '.id'
-            )"
-            release_draft="true"
-          fi
-
-          echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
-          echo "release_draft=${release_draft}" >> "${GITHUB_OUTPUT}"
+            core.setOutput('release_id', String(release.id));
+            core.setOutput('release_draft', String(release.draft));
 
   package-release:
     name: Package ${{ matrix.label }}
@@ -300,18 +294,16 @@ jobs:
 
     steps:
       - name: Publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-        run: |
-          set -euo pipefail
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const releaseId = Number('${{ needs.create-release.outputs.release_id }}');
+            const release = await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: releaseId,
+              draft: false,
+            });
 
-          release_url="$(
-            gh api \
-              --method PATCH \
-              "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
-              -F draft=false \
-              --jq '.html_url'
-          )"
-
-          echo "Published ${release_url}"
+            core.notice(`Published ${release.data.html_url}`);
