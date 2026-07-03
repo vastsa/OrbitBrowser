@@ -16,26 +16,54 @@ pub struct GeolocationOverride {
 }
 
 #[derive(Debug, Clone, Default)]
-struct RuntimeOverrides {
-    timezone_id: Option<String>,
-    geolocation: Option<GeolocationOverride>,
+pub struct BrowserRuntimeOverrides {
+    pub timezone_id: Option<String>,
+    pub geolocation: Option<GeolocationOverride>,
+    pub locale: Option<String>,
+    pub user_agent: Option<String>,
+    pub accept_language: Option<String>,
+    pub platform: Option<String>,
+    pub user_agent_metadata: Option<Value>,
+    pub masked_fonts: Vec<String>,
 }
 
-impl RuntimeOverrides {
-    fn new(timezone_id: Option<String>, geolocation: Option<GeolocationOverride>) -> Self {
+impl BrowserRuntimeOverrides {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        timezone_id: Option<String>,
+        geolocation: Option<GeolocationOverride>,
+        locale: Option<String>,
+        user_agent: Option<String>,
+        accept_language: Option<String>,
+        platform: Option<String>,
+        user_agent_metadata: Option<Value>,
+        masked_fonts: Vec<String>,
+    ) -> Self {
         Self {
             timezone_id: normalize_timezone_id(timezone_id),
             geolocation,
+            locale: normalize_optional_text(locale),
+            user_agent: normalize_optional_text(user_agent),
+            accept_language: normalize_optional_text(accept_language),
+            platform: normalize_optional_text(platform),
+            user_agent_metadata,
+            masked_fonts: normalize_font_list(masked_fonts),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.timezone_id.is_none() && self.geolocation.is_none()
+        self.timezone_id.is_none()
+            && self.geolocation.is_none()
+            && self.locale.is_none()
+            && self.user_agent.is_none()
+            && self.accept_language.is_none()
+            && self.platform.is_none()
+            && self.user_agent_metadata.is_none()
+            && self.masked_fonts.is_empty()
     }
 }
 
-pub fn spawn(port: u16, timezone_id: Option<String>, geolocation: Option<GeolocationOverride>) {
-    let overrides = RuntimeOverrides::new(timezone_id, geolocation);
+pub fn spawn(port: u16, overrides: BrowserRuntimeOverrides) {
     if overrides.is_empty() {
         return;
     }
@@ -51,12 +79,7 @@ pub fn spawn(port: u16, timezone_id: Option<String>, geolocation: Option<Geoloca
     });
 }
 
-pub async fn apply_existing(
-    port: u16,
-    timezone_id: Option<String>,
-    geolocation: Option<GeolocationOverride>,
-) -> AppResult<()> {
-    let overrides = RuntimeOverrides::new(timezone_id, geolocation);
+pub async fn apply_existing(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
     if overrides.is_empty() {
         return Ok(());
     }
@@ -115,6 +138,51 @@ impl TargetSession {
                 "latitude": geolocation.latitude,
                 "longitude": geolocation.longitude,
                 "accuracy": geolocation.accuracy
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn set_locale(&mut self, locale: &str) -> AppResult<()> {
+        self.call("Emulation.setLocaleOverride", json!({ "locale": locale }))
+            .await
+            .map(|_| ())
+    }
+
+    async fn set_user_agent(&mut self, overrides: &BrowserRuntimeOverrides) -> AppResult<()> {
+        let Some(user_agent) = overrides.user_agent.as_deref() else {
+            return Ok(());
+        };
+        let mut params = json!({ "userAgent": user_agent });
+        if let Some(accept_language) = overrides.accept_language.as_deref() {
+            params["acceptLanguage"] = json!(accept_language);
+        }
+        if let Some(platform) = overrides.platform.as_deref() {
+            params["platform"] = json!(platform);
+        }
+        if let Some(metadata) = overrides.user_agent_metadata.as_ref() {
+            params["userAgentMetadata"] = metadata.clone();
+        }
+
+        self.call("Network.enable", json!({})).await?;
+        self.call("Network.setUserAgentOverride", params)
+            .await
+            .map(|_| ())
+    }
+
+    async fn install_runtime_script(&mut self, source: &str) -> AppResult<()> {
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": source }),
+        )
+        .await?;
+        self.call(
+            "Runtime.evaluate",
+            json!({
+                "expression": source,
+                "awaitPromise": false,
+                "returnByValue": true
             }),
         )
         .await
@@ -237,7 +305,7 @@ impl BrowserSession {
     }
 }
 
-async fn watch_targets(port: u16, overrides: RuntimeOverrides) -> AppResult<()> {
+async fn watch_targets(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
     let mut applied_target_ids = HashSet::new();
     let mut consecutive_errors = 0;
 
@@ -264,7 +332,7 @@ async fn watch_targets(port: u16, overrides: RuntimeOverrides) -> AppResult<()> 
 
 async fn apply_to_existing_targets(
     port: u16,
-    overrides: &RuntimeOverrides,
+    overrides: &BrowserRuntimeOverrides,
     applied_target_ids: &mut HashSet<String>,
 ) -> AppResult<()> {
     let targets = cdp_client::list_targets(port).await?;
@@ -287,6 +355,44 @@ async fn apply_to_existing_targets(
                 let apply_key = target_apply_key(target);
                 let first_apply = !applied_target_ids.contains(&apply_key);
                 if first_apply {
+                    if let Some(source) = locale_mask_script(overrides)? {
+                        if let Err(err) = session.install_runtime_script(&source).await {
+                            tracing::warn!(
+                                target_id = target.id,
+                                target_url = target.url,
+                                error = %err,
+                                "Failed to install locale mask script"
+                            );
+                        }
+                    }
+                    if let Some(source) = font_mask_script(&overrides.masked_fonts)? {
+                        if let Err(err) = session.install_runtime_script(&source).await {
+                            tracing::warn!(
+                                target_id = target.id,
+                                target_url = target.url,
+                                error = %err,
+                                "Failed to install font mask script"
+                            );
+                        }
+                    }
+                    if let Err(err) = session.set_user_agent(overrides).await {
+                        tracing::warn!(
+                            target_id = target.id,
+                            target_url = target.url,
+                            error = %err,
+                            "Failed to apply user-agent override"
+                        );
+                    }
+                    if let Some(locale) = overrides.locale.as_deref() {
+                        if let Err(err) = session.set_locale(locale).await {
+                            tracing::warn!(
+                                target_id = target.id,
+                                target_url = target.url,
+                                error = %err,
+                                "Failed to apply locale override"
+                            );
+                        }
+                    }
                     if let Some(timezone_id) = overrides.timezone_id.as_deref() {
                         if let Err(err) = session.set_timezone(timezone_id).await {
                             tracing::warn!(
@@ -330,9 +436,245 @@ async fn apply_to_existing_targets(
 }
 
 fn normalize_timezone_id(timezone_id: Option<String>) -> Option<String> {
-    timezone_id
+    normalize_optional_text(timezone_id)
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn normalize_font_list(fonts: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for font in fonts {
+        let font = font.trim().to_string();
+        if font.is_empty() {
+            continue;
+        }
+        if !normalized.iter().any(|item: &String| item == &font) {
+            normalized.push(font);
+        }
+    }
+    normalized
+}
+
+fn language_list(locale: Option<&str>, accept_language: Option<&str>) -> Vec<String> {
+    let mut languages = Vec::new();
+    if let Some(locale) = locale.map(str::trim).filter(|value| !value.is_empty()) {
+        languages.push(locale.to_string());
+    }
+    if let Some(accept_language) = accept_language {
+        for item in accept_language.split(',') {
+            let language = item
+                .split(';')
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if let Some(language) = language {
+                if !languages
+                    .iter()
+                    .any(|value| value.eq_ignore_ascii_case(language))
+                {
+                    languages.push(language.to_string());
+                }
+            }
+        }
+    }
+    languages
+}
+
+fn locale_mask_script(overrides: &BrowserRuntimeOverrides) -> AppResult<Option<String>> {
+    let Some(locale) = overrides.locale.as_deref() else {
+        return Ok(None);
+    };
+    let locale_json = serde_json::to_string(locale)?;
+    let languages_json = serde_json::to_string(&language_list(
+        overrides.locale.as_deref(),
+        overrides.accept_language.as_deref(),
+    ))?;
+    let source = r#"
+(() => {
+  const locale = __ORBIT_LOCALE__;
+  const languages = __ORBIT_LANGUAGES__;
+
+  if (globalThis.__orbitLocaleMaskInstalled || !locale) return;
+  Object.defineProperty(globalThis, "__orbitLocaleMaskInstalled", { value: true });
+
+  const defineGetter = (target, key, getter) => {
+    try {
+      Object.defineProperty(target, key, { configurable: true, get: getter });
+    } catch (_) {}
+  };
+
+  const navProto = Navigator.prototype;
+  defineGetter(navProto, "language", () => locale);
+  defineGetter(navProto, "languages", () => languages.slice());
+
+  const patchResolvedOptions = (instance) => {
+    try {
+      const originalResolvedOptions = instance.resolvedOptions;
+      if (typeof originalResolvedOptions !== "function") return instance;
+      Object.defineProperty(instance, "resolvedOptions", {
+        configurable: true,
+        value() {
+          const options = originalResolvedOptions.call(this);
+          return { ...options, locale };
+        }
+      });
+    } catch (_) {}
+    return instance;
+  };
+
+  const wrapIntlConstructor = (name) => {
+    const Original = Intl?.[name];
+    if (typeof Original !== "function") return;
+    const normalizeArgs = (args) => {
+      const values = Array.from(args || []);
+      if (values.length === 0 || values[0] == null) {
+        return [locale, ...values.slice(1)];
+      }
+      return values;
+    };
+    try {
+      Intl[name] = new Proxy(Original, {
+        construct(target, args, newTarget) {
+          const instance = Reflect.construct(target, normalizeArgs(args), newTarget);
+          return patchResolvedOptions(instance);
+        },
+        apply(target, thisArg, args) {
+          const instance = Reflect.construct(target, normalizeArgs(args));
+          return patchResolvedOptions(instance);
+        }
+      });
+    } catch (_) {}
+  };
+
+  [
+    "DateTimeFormat",
+    "NumberFormat",
+    "Collator",
+    "PluralRules",
+    "RelativeTimeFormat",
+    "ListFormat",
+    "DisplayNames",
+    "Segmenter"
+  ].forEach(wrapIntlConstructor);
+
+  const wrapLocaleMethod = (prototype, key) => {
+    const original = prototype?.[key];
+    if (typeof original !== "function") return;
+    try {
+      Object.defineProperty(prototype, key, {
+        configurable: true,
+        value(locales, options) {
+          return original.call(this, locales == null ? locale : locales, options);
+        }
+      });
+    } catch (_) {}
+  };
+
+  wrapLocaleMethod(Date.prototype, "toLocaleString");
+  wrapLocaleMethod(Date.prototype, "toLocaleDateString");
+  wrapLocaleMethod(Date.prototype, "toLocaleTimeString");
+  wrapLocaleMethod(Number.prototype, "toLocaleString");
+  wrapLocaleMethod(BigInt.prototype, "toLocaleString");
+})();
+"#
+    .replace("__ORBIT_LOCALE__", &locale_json)
+    .replace("__ORBIT_LANGUAGES__", &languages_json);
+    Ok(Some(source))
+}
+
+fn font_mask_script(fonts: &[String]) -> AppResult<Option<String>> {
+    if fonts.is_empty() {
+        return Ok(None);
+    }
+    let fonts_json = serde_json::to_string(fonts)?;
+    let source = r#"
+(() => {
+  const blockedFonts = new Set(__ORBIT_BLOCKED_FONTS__.map((font) => String(font).toLowerCase()));
+  const fallbackFamily = "Arial";
+  const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hasBlockedFont = (fontText) => {
+    const text = String(fontText || "").toLowerCase();
+    return Array.from(blockedFonts).some((font) => text.includes(font));
+  };
+  const maskFontText = (fontText) => {
+    if (!hasBlockedFont(fontText)) return fontText;
+    let masked = String(fontText);
+    for (const font of blockedFonts) {
+      masked = masked.replace(new RegExp(escapeRegExp(font), "gi"), fallbackFamily);
+    }
+    return masked;
+  };
+
+  if (!globalThis.__orbitFontMaskInstalled) {
+    Object.defineProperty(globalThis, "__orbitFontMaskInstalled", { value: true });
+    const canvasProto = globalThis.CanvasRenderingContext2D?.prototype;
+    if (canvasProto) {
+      const originalMeasureText = canvasProto.measureText;
+      Object.defineProperty(canvasProto, "measureText", {
+        configurable: true,
+        value(text) {
+          if (!hasBlockedFont(this.font)) {
+            return originalMeasureText.call(this, text);
+          }
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
+          if (!context) return originalMeasureText.call(this, text);
+          context.font = maskFontText(this.font);
+          context.direction = this.direction;
+          context.fontKerning = this.fontKerning;
+          context.fontStretch = this.fontStretch;
+          context.fontVariantCaps = this.fontVariantCaps;
+          context.letterSpacing = this.letterSpacing;
+          context.textRendering = this.textRendering;
+          context.wordSpacing = this.wordSpacing;
+          return originalMeasureText.call(context, text);
+        }
+      });
+    }
+
+    const fontFaceSetProto = globalThis.FontFaceSet?.prototype;
+    if (fontFaceSetProto) {
+      const originalCheck = fontFaceSetProto.check;
+      if (originalCheck) {
+        Object.defineProperty(fontFaceSetProto, "check", {
+          configurable: true,
+          value(font, text) {
+            if (hasBlockedFont(font)) return false;
+            return originalCheck.call(this, font, text);
+          }
+        });
+      }
+      const originalLoad = fontFaceSetProto.load;
+      if (originalLoad) {
+        Object.defineProperty(fontFaceSetProto, "load", {
+          configurable: true,
+          value(font, text) {
+            if (hasBlockedFont(font)) return Promise.resolve([]);
+            return originalLoad.call(this, font, text);
+          }
+        });
+      }
+    }
+
+    const originalQueryLocalFonts = navigator.queryLocalFonts;
+    if (typeof originalQueryLocalFonts === "function") {
+      Object.defineProperty(navigator, "queryLocalFonts", {
+        configurable: true,
+        value: async (...args) => {
+          const fonts = await originalQueryLocalFonts.apply(navigator, args);
+          return fonts.filter((font) => !hasBlockedFont(font.family) && !hasBlockedFont(font.fullName));
+        }
+      });
+    }
+  }
+})();
+"#
+    .replace("__ORBIT_BLOCKED_FONTS__", &fonts_json);
+    Ok(Some(source))
 }
 
 fn supports_timezone_override(target: &TargetInfo) -> bool {

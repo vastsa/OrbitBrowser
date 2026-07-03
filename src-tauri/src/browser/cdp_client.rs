@@ -155,6 +155,12 @@ impl CdpPage {
         self.wait_event("Page.loadEventFired", timeout).await
     }
 
+    pub async fn navigate_without_wait(&mut self, url: &str) -> AppResult<()> {
+        self.call("Page.navigate", json!({ "url": url }))
+            .await
+            .map(|_| ())
+    }
+
     pub async fn set_timezone_override(&mut self, timezone_id: &str) -> AppResult<()> {
         self.call(
             "Emulation.setTimezoneOverride",

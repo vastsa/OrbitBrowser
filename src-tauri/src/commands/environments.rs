@@ -1,6 +1,6 @@
 use crate::app_state::AppState;
 use crate::browser::session_registry::BrowserSession;
-use crate::browser::timezone_controller::GeolocationOverride;
+use crate::browser::timezone_controller::{BrowserRuntimeOverrides, GeolocationOverride};
 use crate::browser::{
     cdp_client, chrome_args, chrome_locator, port_allocator, process_manager, profile_manager,
     timezone_controller,
@@ -41,14 +41,37 @@ pub struct ProxyTestResult {
 struct ProxyProbeResult {
     status_code: Option<u16>,
     ip: Option<String>,
+    country_code: Option<String>,
     timezone_id: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeFingerprint {
+    locale: String,
+    accept_language: String,
+    timezone_id: Option<String>,
+    geolocation: Option<GeolocationOverride>,
+    user_agent: Option<String>,
+    platform: Option<String>,
+    masked_fonts: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LocaleProfile {
+    locale: &'static str,
+    accept_language: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
 struct IpWhoIsResponse {
     success: Option<bool>,
     ip: Option<String>,
+    country_code: Option<String>,
     message: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
     timezone: Option<IpWhoIsTimezone>,
 }
 
@@ -148,19 +171,8 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_timezone_id = resolve_runtime_timezone_id(&env).await;
-                let runtime_geolocation = resolve_runtime_geolocation(&env);
-                apply_runtime_overrides(
-                    session.cdp_port,
-                    runtime_timezone_id.clone(),
-                    runtime_geolocation.clone(),
-                )
-                .await;
-                timezone_controller::spawn(
-                    session.cdp_port,
-                    runtime_timezone_id,
-                    runtime_geolocation,
-                );
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                apply_and_watch_runtime(session.cdp_port, runtime_fingerprint).await;
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
                     status: RuntimeStatus::Running,
@@ -199,19 +211,8 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_timezone_id = resolve_runtime_timezone_id(&env).await;
-                let runtime_geolocation = resolve_runtime_geolocation(&env);
-                apply_runtime_overrides(
-                    record.cdp_port,
-                    runtime_timezone_id.clone(),
-                    runtime_geolocation.clone(),
-                )
-                .await;
-                timezone_controller::spawn(
-                    record.cdp_port,
-                    runtime_timezone_id,
-                    runtime_geolocation,
-                );
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                apply_and_watch_runtime(record.cdp_port, runtime_fingerprint).await;
                 state.sessions().upsert(BrowserSession {
                     environment_id: id.clone(),
                     pid: record.pid,
@@ -262,15 +263,8 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_timezone_id = resolve_runtime_timezone_id(&env).await;
-                let runtime_geolocation = resolve_runtime_geolocation(&env);
-                apply_runtime_overrides(
-                    lock.cdp_port,
-                    runtime_timezone_id.clone(),
-                    runtime_geolocation.clone(),
-                )
-                .await;
-                timezone_controller::spawn(lock.cdp_port, runtime_timezone_id, runtime_geolocation);
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                apply_and_watch_runtime(lock.cdp_port, runtime_fingerprint).await;
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
                     status: RuntimeStatus::Running,
@@ -289,15 +283,25 @@ async fn start_environment_inner_with_options(
         settings.chrome_path.as_deref(),
     )?;
     let cdp_port = port_allocator::allocate()?;
-    let runtime_timezone_id = resolve_runtime_timezone_id(&env).await;
-    let runtime_geolocation = resolve_runtime_geolocation(&env);
-    let launch_plan = chrome_args::build(state.data_dir(), &env, &profile_dir, cdp_port)?;
+    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+    let launch_options = chrome_args::ChromeRuntimeOptions {
+        locale: runtime_fingerprint.locale.clone(),
+        accept_language: runtime_fingerprint.accept_language.clone(),
+        user_agent: runtime_fingerprint.user_agent.clone(),
+    };
+    let launch_plan = chrome_args::build(
+        state.data_dir(),
+        &env,
+        &profile_dir,
+        cdp_port,
+        &launch_options,
+    )?;
     let mut command = Command::new(&chrome_path);
     command
         .args(&launch_plan.args)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(timezone_id) = &runtime_timezone_id {
+    if let Some(timezone_id) = &runtime_fingerprint.timezone_id {
         command.env("TZ", timezone_id);
     }
 
@@ -321,13 +325,8 @@ async fn start_environment_inner_with_options(
             return Err(err);
         }
     };
-    apply_runtime_overrides(
-        cdp_port,
-        runtime_timezone_id.clone(),
-        runtime_geolocation.clone(),
-    )
-    .await;
-    timezone_controller::spawn(cdp_port, runtime_timezone_id, runtime_geolocation);
+    apply_and_watch_runtime(cdp_port, runtime_fingerprint).await;
+    navigate_start_url_after_overrides(cdp_port, env.start_url.as_deref()).await;
 
     let now = Utc::now().to_rfc3339();
     let session = BrowserSession {
@@ -517,29 +516,80 @@ pub async fn test_environment_proxy(
     })
 }
 
-async fn resolve_runtime_timezone_id(env: &Environment) -> Option<String> {
+async fn resolve_runtime_fingerprint(env: &Environment) -> RuntimeFingerprint {
     let configured_timezone_id = normalize_optional_text(env.timezone_id.clone());
-    if !is_auto_timezone(configured_timezone_id.as_deref()) {
-        return configured_timezone_id;
-    }
-
-    match probe_ip_timezone(&env.proxy_config, Duration::from_secs(4)).await {
-        Ok(probe) => probe.timezone_id,
-        Err(err) => {
-            tracing::warn!(
-                environment_id = env.id,
-                error = %err,
-                "Failed to detect auto timezone"
-            );
-            None
+    let configured_locale = normalize_optional_text(Some(env.locale.clone()));
+    let needs_ip_probe = is_auto_timezone(configured_timezone_id.as_deref())
+        || is_auto_text(configured_locale.as_deref());
+    let probe = if needs_ip_probe {
+        match probe_ip_timezone(&env.proxy_config, Duration::from_secs(4)).await {
+            Ok(probe) => Some(probe),
+            Err(err) => {
+                tracing::warn!(
+                    environment_id = env.id,
+                    error = %err,
+                    "Failed to detect IP-based runtime fingerprint"
+                );
+                None
+            }
         }
+    } else {
+        None
+    };
+
+    let timezone_id = if is_auto_timezone(configured_timezone_id.as_deref()) {
+        probe.as_ref().and_then(|probe| probe.timezone_id.clone())
+    } else {
+        configured_timezone_id
+    };
+    let locale_profile = locale_profile_for(
+        probe
+            .as_ref()
+            .and_then(|probe| probe.country_code.as_deref()),
+        timezone_id.as_deref(),
+    );
+    let locale = if is_auto_text(configured_locale.as_deref()) {
+        locale_profile.locale.to_string()
+    } else {
+        configured_locale.unwrap_or_else(|| locale_profile.locale.to_string())
+    };
+    let accept_language = accept_language_for_locale(&locale)
+        .unwrap_or(locale_profile.accept_language)
+        .to_string();
+    let geolocation = resolve_runtime_geolocation(env, probe.as_ref());
+    let user_agent = normalize_optional_text(env.user_agent.clone())
+        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+    let platform = normalize_optional_text(env.platform.clone())
+        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+    let masked_fonts = chinese_font_mask_for_locale(&locale);
+
+    RuntimeFingerprint {
+        locale,
+        accept_language,
+        timezone_id,
+        geolocation,
+        user_agent,
+        platform,
+        masked_fonts,
     }
 }
 
-fn resolve_runtime_geolocation(env: &Environment) -> Option<GeolocationOverride> {
+fn resolve_runtime_geolocation(
+    env: &Environment,
+    probe: Option<&ProxyProbeResult>,
+) -> Option<GeolocationOverride> {
+    if let (Some(latitude), Some(longitude)) = (env.geolocation_latitude, env.geolocation_longitude)
+    {
+        return Some(GeolocationOverride {
+            latitude,
+            longitude,
+            accuracy: 20.0,
+        });
+    }
+
     Some(GeolocationOverride {
-        latitude: env.geolocation_latitude?,
-        longitude: env.geolocation_longitude?,
+        latitude: probe?.latitude?,
+        longitude: probe?.longitude?,
         accuracy: 20.0,
     })
 }
@@ -608,9 +658,12 @@ async fn fetch_ip_timezone(client: reqwest::Client) -> AppResult<ProxyProbeResul
     Ok(ProxyProbeResult {
         status_code,
         ip: normalize_optional_text(body.ip),
+        country_code: normalize_optional_text(body.country_code).map(|value| value.to_uppercase()),
         timezone_id: body
             .timezone
             .and_then(|timezone| normalize_optional_text(timezone.id)),
+        latitude: body.latitude,
+        longitude: body.longitude,
     })
 }
 
@@ -624,18 +677,230 @@ fn is_auto_timezone(timezone_id: Option<&str>) -> bool {
     timezone_id.is_none_or(|value| value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID))
 }
 
-async fn apply_runtime_overrides(
-    cdp_port: u16,
-    timezone_id: Option<String>,
-    geolocation: Option<GeolocationOverride>,
-) {
-    if let Err(err) = timezone_controller::apply_existing(cdp_port, timezone_id, geolocation).await
+fn is_auto_text(value: Option<&str>) -> bool {
+    value.is_none_or(|value| value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID))
+}
+
+fn locale_profile_for(country_code: Option<&str>, timezone_id: Option<&str>) -> LocaleProfile {
+    match country_code.unwrap_or_default() {
+        "CN" => LocaleProfile {
+            locale: "zh-CN",
+            accept_language: "zh-CN,zh;q=0.9,en;q=0.8",
+        },
+        "HK" => LocaleProfile {
+            locale: "zh-HK",
+            accept_language: "zh-HK,zh;q=0.9,en;q=0.8",
+        },
+        "MO" => LocaleProfile {
+            locale: "zh-MO",
+            accept_language: "zh-MO,zh;q=0.9,en;q=0.8",
+        },
+        "TW" => LocaleProfile {
+            locale: "zh-TW",
+            accept_language: "zh-TW,zh;q=0.9,en;q=0.8",
+        },
+        "JP" => LocaleProfile {
+            locale: "ja-JP",
+            accept_language: "ja-JP,ja;q=0.9,en;q=0.8",
+        },
+        "KR" => LocaleProfile {
+            locale: "ko-KR",
+            accept_language: "ko-KR,ko;q=0.9,en;q=0.8",
+        },
+        "GB" => LocaleProfile {
+            locale: "en-GB",
+            accept_language: "en-GB,en;q=0.9",
+        },
+        "DE" => LocaleProfile {
+            locale: "de-DE",
+            accept_language: "de-DE,de;q=0.9,en;q=0.8",
+        },
+        "FR" => LocaleProfile {
+            locale: "fr-FR",
+            accept_language: "fr-FR,fr;q=0.9,en;q=0.8",
+        },
+        "ES" => LocaleProfile {
+            locale: "es-ES",
+            accept_language: "es-ES,es;q=0.9,en;q=0.8",
+        },
+        "IT" => LocaleProfile {
+            locale: "it-IT",
+            accept_language: "it-IT,it;q=0.9,en;q=0.8",
+        },
+        "BR" => LocaleProfile {
+            locale: "pt-BR",
+            accept_language: "pt-BR,pt;q=0.9,en;q=0.8",
+        },
+        "RU" => LocaleProfile {
+            locale: "ru-RU",
+            accept_language: "ru-RU,ru;q=0.9,en;q=0.8",
+        },
+        "IN" => LocaleProfile {
+            locale: "en-IN",
+            accept_language: "en-IN,en;q=0.9",
+        },
+        "SG" => LocaleProfile {
+            locale: "en-SG",
+            accept_language: "en-SG,en;q=0.9",
+        },
+        "US" => LocaleProfile {
+            locale: "en-US",
+            accept_language: "en-US,en;q=0.9",
+        },
+        _ => locale_profile_for_timezone(timezone_id),
+    }
+}
+
+fn locale_profile_for_timezone(timezone_id: Option<&str>) -> LocaleProfile {
+    let timezone_id = timezone_id.unwrap_or_default();
+    if timezone_id.starts_with("Asia/Shanghai")
+        || timezone_id.starts_with("Asia/Urumqi")
+        || timezone_id.starts_with("Asia/Chongqing")
+        || timezone_id.starts_with("Asia/Harbin")
     {
+        return LocaleProfile {
+            locale: "zh-CN",
+            accept_language: "zh-CN,zh;q=0.9,en;q=0.8",
+        };
+    }
+    if timezone_id.starts_with("Asia/Tokyo") {
+        return LocaleProfile {
+            locale: "ja-JP",
+            accept_language: "ja-JP,ja;q=0.9,en;q=0.8",
+        };
+    }
+    if timezone_id.starts_with("Asia/Seoul") {
+        return LocaleProfile {
+            locale: "ko-KR",
+            accept_language: "ko-KR,ko;q=0.9,en;q=0.8",
+        };
+    }
+    if timezone_id.starts_with("Europe/London") {
+        return LocaleProfile {
+            locale: "en-GB",
+            accept_language: "en-GB,en;q=0.9",
+        };
+    }
+    LocaleProfile {
+        locale: "en-US",
+        accept_language: "en-US,en;q=0.9",
+    }
+}
+
+fn accept_language_for_locale(locale: &str) -> Option<&'static str> {
+    match locale.to_ascii_lowercase().as_str() {
+        "zh-cn" => Some("zh-CN,zh;q=0.9,en;q=0.8"),
+        "zh-hk" => Some("zh-HK,zh;q=0.9,en;q=0.8"),
+        "zh-mo" => Some("zh-MO,zh;q=0.9,en;q=0.8"),
+        "zh-tw" => Some("zh-TW,zh;q=0.9,en;q=0.8"),
+        "ja-jp" => Some("ja-JP,ja;q=0.9,en;q=0.8"),
+        "ko-kr" => Some("ko-KR,ko;q=0.9,en;q=0.8"),
+        "en-gb" => Some("en-GB,en;q=0.9"),
+        "en-us" => Some("en-US,en;q=0.9"),
+        "en-in" => Some("en-IN,en;q=0.9"),
+        "en-sg" => Some("en-SG,en;q=0.9"),
+        "de-de" => Some("de-DE,de;q=0.9,en;q=0.8"),
+        "fr-fr" => Some("fr-FR,fr;q=0.9,en;q=0.8"),
+        "es-es" => Some("es-ES,es;q=0.9,en;q=0.8"),
+        "it-it" => Some("it-IT,it;q=0.9,en;q=0.8"),
+        "pt-br" => Some("pt-BR,pt;q=0.9,en;q=0.8"),
+        "ru-ru" => Some("ru-RU,ru;q=0.9,en;q=0.8"),
+        _ => None,
+    }
+}
+
+fn chinese_font_mask_for_locale(locale: &str) -> Vec<String> {
+    if locale.to_ascii_lowercase().starts_with("zh") {
+        return Vec::new();
+    }
+    [
+        "PingFang SC",
+        "PingFang TC",
+        "PingFang HK",
+        "Hiragino Sans GB",
+        "STHeiti",
+        "STSong",
+        "Songti SC",
+        "Heiti SC",
+        "Kaiti SC",
+        "Microsoft YaHei",
+        "Microsoft JhengHei",
+        "SimSun",
+        "NSimSun",
+        "SimHei",
+        "FangSong",
+        "KaiTi",
+        "DFKai-SB",
+        "PMingLiU",
+        "MingLiU",
+        "WenQuanYi Micro Hei",
+        "Source Han Sans SC",
+        "Source Han Sans TC",
+        "Source Han Sans HK",
+        "Noto Sans CJK SC",
+        "Noto Sans CJK TC",
+        "Noto Serif CJK SC",
+        "Noto Serif CJK TC",
+        "\u{5fae}\u{8f6f}\u{96c5}\u{9ed1}",
+        "\u{5b8b}\u{4f53}",
+        "\u{65b0}\u{5b8b}\u{4f53}",
+        "\u{9ed1}\u{4f53}",
+        "\u{6977}\u{4f53}",
+        "\u{4eff}\u{5b8b}",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint) {
+    let overrides = BrowserRuntimeOverrides::new(
+        fingerprint.timezone_id,
+        fingerprint.geolocation,
+        Some(fingerprint.locale),
+        fingerprint.user_agent,
+        Some(fingerprint.accept_language),
+        fingerprint.platform,
+        None,
+        fingerprint.masked_fonts,
+    );
+    if let Err(err) = timezone_controller::apply_existing(cdp_port, overrides.clone()).await {
         tracing::warn!(
             cdp_port,
             error = %err,
             "Failed to apply initial runtime overrides"
         );
+    }
+    timezone_controller::spawn(cdp_port, overrides);
+}
+
+async fn navigate_start_url_after_overrides(cdp_port: u16, start_url: Option<&str>) {
+    let Some(start_url) = start_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("about:blank"))
+    else {
+        return;
+    };
+
+    match cdp_client::CdpPage::connect(cdp_port, None).await {
+        Ok(mut page) => {
+            if let Err(err) = page.navigate_without_wait(start_url).await {
+                tracing::warn!(
+                    cdp_port,
+                    start_url,
+                    error = %err,
+                    "Failed to navigate start URL after runtime overrides"
+                );
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                cdp_port,
+                start_url,
+                error = %err,
+                "Failed to connect page for delayed start URL navigation"
+            );
+        }
     }
 }
 
@@ -816,6 +1081,24 @@ mod tests {
             headless: false,
             start_url: Some("about:blank".to_string()),
         }
+    }
+
+    #[test]
+    fn locale_profile_tracks_country_and_timezone() {
+        let china = locale_profile_for(Some("CN"), Some("America/New_York"));
+        let london = locale_profile_for(None, Some("Europe/London"));
+
+        assert_eq!(china.locale, "zh-CN");
+        assert_eq!(china.accept_language, "zh-CN,zh;q=0.9,en;q=0.8");
+        assert_eq!(london.locale, "en-GB");
+    }
+
+    #[test]
+    fn locale_lookup_is_case_tolerant() {
+        assert_eq!(
+            accept_language_for_locale("zh-cn"),
+            Some("zh-CN,zh;q=0.9,en;q=0.8")
+        );
     }
 
     #[test]

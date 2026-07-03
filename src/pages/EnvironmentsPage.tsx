@@ -49,7 +49,7 @@ import type {
 } from "@/types/domain";
 
 const fallbackEnvironmentDefaults = {
-  locale: "zh-CN",
+  locale: "auto",
   timezone_id: "auto",
   viewport_width: 1280,
   viewport_height: 800,
@@ -63,6 +63,11 @@ function createDefaultEnvironment(
   labels = { name: "Environment", tag: "local" },
 ): EnvironmentDraft {
   const normalizedIndex = String(Math.max(nextIndex, 1)).padStart(2, "0");
+  const settingsLocale = settings?.default_locale?.trim();
+  const defaultLocale =
+    settingsLocale && settingsLocale.toLowerCase() !== "zh-cn"
+      ? settingsLocale
+      : fallbackEnvironmentDefaults.locale;
 
   return {
     name: `${labels.name} ${normalizedIndex}`,
@@ -73,13 +78,13 @@ function createDefaultEnvironment(
     chrome_path_override: "",
     profile_dir: "",
     proxy_config: { kind: "none", bypass_list: defaultProxyBypassList },
-    locale: settings?.default_locale || fallbackEnvironmentDefaults.locale,
+    locale: defaultLocale,
     timezone_id:
       settings?.default_timezone_id || fallbackEnvironmentDefaults.timezone_id,
     geolocation_latitude: undefined,
     geolocation_longitude: undefined,
-    user_agent: null,
-    platform: null,
+    user_agent: "",
+    platform: "",
     web_rtc_protection: true,
     viewport_width:
       settings?.default_viewport_width ||
@@ -89,7 +94,7 @@ function createDefaultEnvironment(
       fallbackEnvironmentDefaults.viewport_height,
     device_scale_factor: 1,
     environment_mode: "standard",
-    seed: null,
+    seed: "",
     headless: false,
     start_url: "about:blank",
   };
@@ -114,14 +119,14 @@ function toDraft(environment?: Environment): EnvironmentDraft {
     timezone_id: environment.timezone_id,
     geolocation_latitude: environment.geolocation_latitude,
     geolocation_longitude: environment.geolocation_longitude,
-    user_agent: null,
-    platform: null,
+    user_agent: environment.user_agent ?? "",
+    platform: environment.platform ?? "",
     web_rtc_protection: environment.web_rtc_protection,
     viewport_width: environment.viewport_width,
     viewport_height: environment.viewport_height,
     device_scale_factor: environment.device_scale_factor,
-    environment_mode: "standard",
-    seed: null,
+    environment_mode: environment.environment_mode,
+    seed: environment.seed ?? "",
     headless: environment.headless,
     start_url: environment.start_url ?? "",
   };
@@ -176,11 +181,11 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
       fallbackEnvironmentDefaults.timezone_id,
     geolocation_latitude: draft.geolocation_latitude,
     geolocation_longitude: draft.geolocation_longitude,
-    user_agent: null,
-    platform: null,
+    user_agent: cleanOptionalText(draft.user_agent),
+    platform: cleanOptionalText(draft.platform),
     web_rtc_protection: draft.web_rtc_protection,
-    environment_mode: "standard",
-    seed: null,
+    environment_mode: draft.environment_mode ?? "standard",
+    seed: cleanOptionalText(draft.seed),
     start_url: cleanOptionalText(draft.start_url),
   };
 }
@@ -916,6 +921,7 @@ function EnvironmentModal({
           <h3 className="text-sm font-semibold text-ink-900">{text.sections.runtime}</h3>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TextField
+              hint={text.fields.localeHint}
               label={text.fields.locale}
               onChange={(event) => update("locale", event.target.value)}
               value={draft.locale}
@@ -978,7 +984,25 @@ function EnvironmentModal({
               type="number"
               value={draft.device_scale_factor}
             />
+            <TextField
+              hint={text.fields.platformHint}
+              label={text.fields.platform}
+              onChange={(event) => update("platform", event.target.value)}
+              value={draft.platform ?? ""}
+            />
+            <TextField
+              hint={text.fields.seedHint}
+              label={text.fields.seed}
+              onChange={(event) => update("seed", event.target.value)}
+              value={draft.seed ?? ""}
+            />
           </div>
+          <TextareaField
+            hint={text.fields.userAgentHint}
+            label={text.fields.userAgent}
+            onChange={(event) => update("user_agent", event.target.value)}
+            value={draft.user_agent ?? ""}
+          />
         </section>
       </div>
     </Modal>

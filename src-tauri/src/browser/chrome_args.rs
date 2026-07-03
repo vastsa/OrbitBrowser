@@ -2,7 +2,7 @@ use crate::domain::environment::Environment;
 use crate::domain::proxy::ProxyKind;
 use crate::errors::AppResult;
 use base64::Engine;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -12,12 +12,22 @@ pub struct ChromeLaunchPlan {
     pub proxy_extension_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChromeRuntimeOptions {
+    pub locale: String,
+    pub accept_language: String,
+    pub user_agent: Option<String>,
+}
+
 pub fn build(
     data_dir: &Path,
     env: &Environment,
     profile_dir: &Path,
     cdp_port: u16,
+    runtime: &ChromeRuntimeOptions,
 ) -> AppResult<ChromeLaunchPlan> {
+    write_profile_preferences(profile_dir, &runtime.accept_language)?;
+
     let mut args = vec![
         format!("--user-data-dir={}", profile_dir.to_string_lossy()),
         format!("--remote-debugging-port={cdp_port}"),
@@ -25,7 +35,7 @@ pub fn build(
         "--no-default-browser-check".to_string(),
         "--disable-popup-blocking".to_string(),
         "--disable-search-engine-choice-screen".to_string(),
-        format!("--lang={}", env.locale),
+        format!("--lang={}", runtime.locale),
         format!(
             "--window-size={},{}",
             env.viewport_width, env.viewport_height
@@ -36,7 +46,7 @@ pub fn build(
         args.push("--headless=new".to_string());
     }
 
-    if let Some(user_agent) = env
+    if let Some(user_agent) = runtime
         .user_agent
         .as_deref()
         .map(str::trim)
@@ -66,11 +76,7 @@ pub fn build(
         ));
     }
 
-    args.push(
-        env.start_url
-            .clone()
-            .unwrap_or_else(|| "about:blank".to_string()),
-    );
+    args.push("about:blank".to_string());
 
     Ok(ChromeLaunchPlan {
         args,
@@ -162,6 +168,41 @@ chrome.webRequest.onAuthRequired.addListener(
     Ok(extension_dir)
 }
 
+fn write_profile_preferences(profile_dir: &Path, accept_language: &str) -> AppResult<()> {
+    let default_profile_dir = profile_dir.join("Default");
+    std::fs::create_dir_all(&default_profile_dir)?;
+    let preferences_path = default_profile_dir.join("Preferences");
+    let mut preferences = if preferences_path.exists() {
+        std::fs::read_to_string(&preferences_path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}))
+    } else {
+        json!({})
+    };
+
+    let accept_language = accept_language
+        .split(',')
+        .filter_map(|item| item.split(';').next())
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    if !preferences
+        .get("intl")
+        .is_some_and(|value| value.is_object())
+    {
+        preferences["intl"] = json!({});
+    }
+    preferences["intl"]["accept_languages"] = json!(accept_language);
+    std::fs::write(
+        preferences_path,
+        serde_json::to_string_pretty(&preferences)?,
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +247,14 @@ mod tests {
         }
     }
 
+    fn runtime_options() -> ChromeRuntimeOptions {
+        ChromeRuntimeOptions {
+            locale: "zh-CN".to_string(),
+            accept_language: "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
+            user_agent: Some("OrbitTestAgent/1.0".to_string()),
+        }
+    }
+
     #[test]
     fn authenticated_proxy_generates_extension_files() {
         let root = std::env::temp_dir().join(format!("orbit-proxy-test-{}", uuid::Uuid::new_v4()));
@@ -239,7 +288,7 @@ mod tests {
         env.proxy_config.password = None;
         let profile_dir = root.join("profiles").join("env_proxy_auth");
 
-        let plan = build(&root, &env, &profile_dir, 9222).unwrap();
+        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
 
         assert!(plan.proxy_extension_dir.is_none());
         assert!(plan
@@ -257,8 +306,28 @@ mod tests {
         env.headless = true;
         let profile_dir = root.join("profiles").join("env_headless");
 
-        let plan = build(&root, &env, &profile_dir, 9222).unwrap();
+        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
 
         assert!(plan.args.iter().any(|arg| arg == "--headless=new"));
+    }
+
+    #[test]
+    fn runtime_languages_are_written_to_profile_preferences() {
+        let root = std::env::temp_dir().join(format!("orbit-lang-test-{}", uuid::Uuid::new_v4()));
+        let env = test_environment();
+        let profile_dir = root.join("profiles").join("env_lang");
+
+        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
+        let preferences =
+            std::fs::read_to_string(profile_dir.join("Default").join("Preferences")).unwrap();
+
+        assert!(plan.args.iter().any(|arg| arg == "--lang=zh-CN"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "--user-agent=OrbitTestAgent/1.0"));
+        assert!(preferences.contains(r#""accept_languages": "zh-CN,zh,en""#));
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
