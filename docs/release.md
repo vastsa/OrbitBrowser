@@ -1,7 +1,7 @@
 # Release Process
 
-The project uses GitHub Actions to verify changes, package Linux builds, and
-create GitHub Releases on version tags.
+The project uses GitHub Actions to verify changes, package desktop bundles, and
+publish GitHub Releases on version tags.
 
 ## Trigger
 
@@ -14,33 +14,35 @@ git push origin v0.1.0
 
 GitHub Actions runs:
 
-1. `verify`: runs the frontend build and Rust tests.
-2. `package-linux`: runs `pnpm tauri:build` and packages Linux artifacts.
-3. `Publish GitHub Release`: creates or updates a GitHub Release and uploads
-   the Linux artifact.
+1. `frontend-build`: runs the TypeScript and Vite build.
+2. `rust-tests`: runs the Rust test suite.
+3. `create-release`: creates or updates a draft GitHub Release.
+4. `package-release`: builds macOS, Windows, and Linux bundles and uploads them
+   to the draft Release.
+5. `publish-release`: publishes the Release after all required package jobs
+   complete.
 
 ## Default Artifacts
 
-The default Linux job keeps:
+The release workflow uploads Tauri bundles directly to the GitHub Release and
+also stores matching workflow artifacts for debugging failed or partial runs.
 
-- `release/orbit-browser-linux-<tag>.tar.gz`
-- `src-tauri/target/release/bundle/`
+Release asset names follow this pattern:
 
-The exact bundle types are produced by Tauri on the Linux runner and commonly
-include one or more of AppImage, deb, or rpm.
+```text
+orbit-browser-<tag>-<platform>-<arch><setup><ext>
+```
 
-## macOS And Windows
+The exact bundle types are produced by Tauri on each runner and commonly
+include:
 
-Tauri desktop packages cannot be fully cross-built for macOS or Windows from a
-generic Linux runner. Multi-platform releases require GitHub hosted or
-self-hosted runners on the target operating systems:
+- macOS: `.dmg` and `.app` outputs.
+- Windows: `.msi` and `.exe` outputs.
+- Linux: AppImage, deb, or rpm outputs.
 
-- macOS runner: builds `.dmg`, `.app`, signing, and notarization outputs.
-- Windows runner: builds `.msi`, `.exe`, and signing outputs.
-
-Use the `package-linux` job structure in `.github/workflows/ci.yml` as the
-template for `package-macos` and `package-windows`, then constrain them with
-the corresponding `runs-on` labels.
+Experimental matrix entries are allowed to fail without blocking the final
+Release publication. Required matrix entries must pass before the draft Release
+is published.
 
 ## Pre-Release Checklist
 

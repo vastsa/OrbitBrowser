@@ -1,6 +1,6 @@
 # Release 流程
 
-项目使用 GitHub Actions 校验变更、打包 Linux 版本，并在 tag 上创建
+项目使用 GitHub Actions 校验变更、打包桌面安装包，并在版本 tag 上自动发布
 GitHub Release。
 
 ## 触发方式
@@ -14,31 +14,31 @@ git push origin v0.1.0
 
 GitHub Actions 会执行：
 
-1. `verify`：运行前端构建和 Rust 测试。
-2. `package-linux`：执行 `pnpm tauri:build`，打包 Linux 产物。
-3. `Publish GitHub Release`：创建或更新 GitHub Release，并上传 Linux 产物。
+1. `frontend-build`：运行 TypeScript 和 Vite 构建。
+2. `rust-tests`：运行 Rust 测试。
+3. `create-release`：创建或更新 draft GitHub Release。
+4. `package-release`：构建 macOS、Windows 和 Linux 安装包，并上传到 draft Release。
+5. `publish-release`：所有必需打包任务完成后，自动发布 Release。
 
 ## 默认产物
 
-默认 Linux job 会保留：
+发布工作流会把 Tauri bundle 直接上传到 GitHub Release，同时保留匹配的
+workflow artifact，便于排查失败或部分完成的发布任务。
 
-- `release/orbit-browser-linux-<tag>.tar.gz`
-- `src-tauri/target/release/bundle/`
+Release asset 命名规则：
 
-具体 bundle 类型由 Tauri 在 Linux runner 上生成，通常包含 AppImage、deb
-或 rpm 中的一种或多种。
+```text
+orbit-browser-<tag>-<platform>-<arch><setup><ext>
+```
 
-## macOS 和 Windows
+具体 bundle 类型由 Tauri 在各平台 runner 上生成，通常包含：
 
-Tauri 桌面包不能在普通 Linux runner 上交叉完整构建 macOS 或 Windows
-安装包。要增加多平台 release，需要配置对应系统的 GitHub hosted 或
-self-hosted runner：
+- macOS：`.dmg` 和 `.app` 产物。
+- Windows：`.msi` 和 `.exe` 产物。
+- Linux：AppImage、deb 或 rpm 产物。
 
-- macOS runner：用于 `.dmg`、`.app`、签名和 notarization。
-- Windows runner：用于 `.msi`、`.exe` 和签名。
-
-建议复制 `.github/workflows/ci.yml` 中的 `package-linux` 结构，新增
-`package-macos` 和 `package-windows`，并用对应 `runs-on` 标签限定系统。
+实验性矩阵项允许失败，不会阻塞最终 Release 发布。必需矩阵项必须通过，
+draft Release 才会被正式发布。
 
 ## 发布前检查
 
