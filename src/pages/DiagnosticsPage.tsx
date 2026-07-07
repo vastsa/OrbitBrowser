@@ -1,8 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
-  Database,
-  HardDrive,
   RefreshCw,
   Search,
   Trash2,
@@ -47,7 +44,7 @@ export function DiagnosticsPage() {
   const diagnostics = diagnosticsQuery.data;
 
   return (
-    <div className="viewport-page grid-rows-[auto_auto_minmax(0,1fr)]">
+    <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
       <section className="panel shrink-0 p-3">
         <div className="flex items-center justify-between">
           <div>
@@ -87,29 +84,6 @@ export function DiagnosticsPage() {
               : detectChromeMutation.data.error ?? text.chromeNotDetected}
           </div>
         ) : null}
-      </section>
-
-      <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          icon={<Activity className="h-5 w-5" />}
-          label={text.metrics.runningBrowsers}
-          value={String(diagnostics?.runtime?.running_browser_count ?? 0)}
-        />
-        <MetricCard
-          icon={<Database className="h-5 w-5" />}
-          label={text.metrics.queueConcurrency}
-          value={String(diagnostics?.runtime?.current_queue_concurrency ?? 0)}
-        />
-        <MetricCard
-          icon={<HardDrive className="h-5 w-5" />}
-          label={text.metrics.profiles}
-          value={formatBytes(diagnostics?.data?.profiles_total_size)}
-        />
-        <MetricCard
-          icon={<HardDrive className="h-5 w-5" />}
-          label={text.metrics.runs}
-          value={formatBytes(diagnostics?.data?.runs_total_size)}
-        />
       </section>
 
       <section className="scroll-panel grid content-start gap-3 pr-1">
@@ -234,26 +208,6 @@ export function DiagnosticsPage() {
         </section>
       ) : null}
       </section>
-    </div>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="panel p-3">
-      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 text-white">
-        {icon}
-      </div>
-      <div className="text-lg font-semibold text-ink-900">{value}</div>
-      <div className="mt-1 text-sm text-ink-500">{label}</div>
     </div>
   );
 }

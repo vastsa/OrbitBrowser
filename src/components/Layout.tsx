@@ -2,7 +2,6 @@ import {
   Activity,
   ClipboardList,
   History,
-  Rocket,
   Settings,
   SquareStack,
 } from "lucide-react";
@@ -17,7 +16,6 @@ export function Layout() {
   const { copy, language } = useI18n();
   const navigation = useMemo(
     () => [
-      { to: "/", label: copy.layout.nav.quickStart, icon: Rocket },
       { to: "/environments", label: copy.layout.nav.environments, icon: SquareStack },
       { to: "/tasks", label: copy.layout.nav.tasks, icon: ClipboardList },
       { to: "/runs", label: copy.layout.nav.runs, icon: History },
@@ -26,9 +24,8 @@ export function Layout() {
     ],
     [copy],
   );
-  const titleMap = useMemo<Record<string, { title: string; subtitle: string }>>(
+  const titleMap = useMemo<Record<string, { title: string }>>(
     () => ({
-      "/": copy.layout.pages.quickStart,
       "/environments": copy.layout.pages.environments,
       "/tasks": copy.layout.pages.tasks,
       "/runs": copy.layout.pages.runs,
@@ -86,25 +83,11 @@ export function Layout() {
             );
           })}
         </nav>
-        <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-line bg-white/80 p-3 shadow-panel">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-ink-500">{copy.common.runtime}</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-ok">
-              <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-              Local
-            </span>
-          </div>
-        </div>
       </aside>
       <main className="flex h-screen min-h-0 flex-col pl-[15rem]">
         <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/70 bg-white/75 px-6 backdrop-blur-xl">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight text-ink-900">{page.title}</h1>
-          </div>
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
-            <div className="max-w-2xl truncate rounded-full border border-brand-100 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700">
-              {page.subtitle}
-            </div>
           </div>
         </header>
         <div className="mx-auto flex min-h-0 w-full max-w-[1480px] flex-1 overflow-hidden px-5 py-3">

@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
-  FileCode2,
   Play,
   Plus,
   Save,
@@ -139,7 +138,6 @@ export function TasksPage() {
           </Button>
         }
         eyebrow={text.eyebrow}
-        subtitle={text.listOnlyHint}
         title={text.pageTitle}
       />
 
@@ -417,7 +415,6 @@ export function TaskDetailPage() {
         <div className="grid min-w-0 content-start gap-4">
           <section className="panel p-4">
             <SectionHeader
-              subtitle={text.detailSubtitle}
               title={draft.id ? text.editTitle : text.newTitle}
             />
 
@@ -475,27 +472,6 @@ export function TaskDetailPage() {
                 value={draft.description ?? ""}
               />
             </div>
-
-            <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-              <div className="rounded-lg border border-line bg-ink-50 px-3 py-2">
-                <div className="text-xs text-ink-500">{text.timeout}</div>
-                <div className="mono-tabular mt-1 font-semibold text-ink-900">
-                  {draft.timeout_sec} {text.seconds}
-                </div>
-              </div>
-              <div className="rounded-lg border border-line bg-ink-50 px-3 py-2">
-                <div className="text-xs text-ink-500">{text.scriptLines}</div>
-                <div className="mono-tabular mt-1 font-semibold text-ink-900">
-                  {draft.script.split("\n").length}
-                </div>
-              </div>
-              <div className="rounded-lg border border-line bg-ink-50 px-3 py-2">
-                <div className="text-xs text-ink-500">{text.runTargets}</div>
-                <div className="mono-tabular mt-1 font-semibold text-ink-900">
-                  {selectedEnvironmentIds.length} / {environments.length}
-                </div>
-              </div>
-            </div>
           </section>
 
           <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
@@ -514,7 +490,6 @@ export function TaskDetailPage() {
                   ))}
                 </div>
               }
-              subtitle={text.scriptEditorSubtitle}
               title={text.scriptEditor}
             />
             <textarea
@@ -650,10 +625,7 @@ export function TaskDetailPage() {
           </section>
 
           <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
-            <SectionHeader
-              subtitle={text.recentRunsSubtitle}
-              title={text.recentRuns}
-            />
+            <SectionHeader title={text.recentRuns} />
             <div className="grid max-h-72 gap-2 overflow-auto pr-1">
               {selectedEnvironments.length > 0 ? (
                 <div className="rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-xs text-ok">
@@ -687,32 +659,6 @@ export function TaskDetailPage() {
             </div>
           </section>
 
-          <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
-            <SectionHeader title={text.scriptPreview} />
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-lg border border-line bg-ink-50 px-3 py-2">
-                <div className="text-xs text-ink-500">{text.scriptLines}</div>
-                <div className="mono-tabular mt-1 font-semibold text-ink-900">
-                  {draft.script.split("\n").length}
-                </div>
-              </div>
-              <div className="rounded-lg border border-line bg-ink-50 px-3 py-2">
-                <div className="text-xs text-ink-500">{text.timeout}</div>
-                <div className="mono-tabular mt-1 font-semibold text-ink-900">
-                  {draft.timeout_sec} {text.seconds}
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 rounded-lg border border-line bg-ink-50 px-3 py-3 text-xs leading-5 text-ink-600">
-              <div className="mb-2 flex items-center gap-2 font-medium text-ink-800">
-                <FileCode2 className="h-3.5 w-3.5" />
-                {draft.name || text.noTaskSelected}
-              </div>
-              <p className="line-clamp-4">
-                {draft.description || text.noTaskHint}
-              </p>
-            </div>
-          </section>
         </aside>
       </div>
 

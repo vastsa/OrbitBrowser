@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   FolderOpen,
   Languages,
-  RefreshCw,
   Save,
   Search,
   Trash2,
@@ -13,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/Button";
 import { SelectField, TextField } from "@/components/FormField";
 import { languageOptions, useI18n } from "@/i18n";
-import { errorMessage, formatBytes, formatDateTime } from "@/lib/format";
+import { errorMessage, formatBytes } from "@/lib/format";
 import { browserApi } from "@/lib/tauri";
 import type { AppLanguage } from "@/stores/uiStore";
 import type { Settings } from "@/types/domain";
@@ -293,38 +292,6 @@ export function SettingsPage() {
           ) : null}
         </section>
 
-        <section className="panel p-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink-900">{text.status}</h2>
-            <Button
-              aria-label={copy.common.refresh}
-              className="h-8"
-              icon={<RefreshCw className="h-4 w-4" />}
-              onClick={() => void settingsQuery.refetch()}
-              variant="ghost"
-            />
-          </div>
-          <dl className="mt-3 grid gap-3 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-500">{text.updated}</dt>
-              <dd className="text-right text-ink-900">
-                {formatDateTime(settings.updated_at, language)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-500">Chrome</dt>
-              <dd className="max-w-48 truncate text-right text-ink-900">
-                {settings.chrome_path || "-"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-500">{text.dataDirectory}</dt>
-              <dd className="max-w-48 truncate text-right text-ink-900">
-                {settings.data_dir || "-"}
-              </dd>
-            </div>
-          </dl>
-        </section>
       </aside>
     </div>
   );

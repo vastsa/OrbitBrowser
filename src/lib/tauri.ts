@@ -66,96 +66,8 @@ function isTauriRuntime(): boolean {
 
 const mockNow = new Date().toISOString();
 
-const mockEnvironments: Environment[] = [
-  {
-    id: "env-main",
-    name: "Default Chrome Environment",
-    group_id: "core",
-    tags: ["local", "visible-window"],
-    notes: "Used for daily smoke checks and script debugging.",
-    browser_kind: "chrome",
-    locale: "en-US",
-    timezone_id: "auto",
-    geolocation_latitude: null,
-    geolocation_longitude: null,
-    user_agent: null,
-    platform: null,
-    web_rtc_protection: true,
-    viewport_width: 1365,
-    viewport_height: 860,
-    device_scale_factor: 1,
-    environment_mode: "standard",
-    headless: false,
-    start_url: "https://example.com",
-    proxy_config: { kind: "none", bypass_list: [] },
-    created_at: mockNow,
-    updated_at: mockNow,
-  },
-  {
-    id: "env-proxy",
-    name: "Proxy Validation Environment",
-    group_id: "proxy",
-    tags: ["SOCKS5", "screenshot"],
-    notes: "Used to verify proxy routing, locale, and artifact output.",
-    browser_kind: "chrome",
-    locale: "en-US",
-    timezone_id: "America/Los_Angeles",
-    geolocation_latitude: 34.0522,
-    geolocation_longitude: -118.2437,
-    user_agent: null,
-    platform: null,
-    web_rtc_protection: true,
-    viewport_width: 1440,
-    viewport_height: 900,
-    device_scale_factor: 1,
-    environment_mode: "standard",
-    headless: false,
-    start_url: "https://example.org",
-    proxy_config: {
-      kind: "socks5",
-      host: "127.0.0.1",
-      port: 7890,
-      bypass_list: ["localhost", "127.0.0.1"],
-    },
-    created_at: mockNow,
-    updated_at: mockNow,
-  },
-];
-
-const mockTasks: AutomationTask[] = [
-  {
-    id: "task-title",
-    name: "Page Title Capture",
-    description: "Open a target page, log its title, and emit a JSON artifact.",
-    script:
-      'await page.goto("https://example.com");\nconst title = await page.title();\nlog.info(`Page title: ${title}`);\nawait run.outputJson("title", { title });',
-    timeout_sec: 60,
-    api_version: "v1",
-    permissions: {
-      screenshots: true,
-      external_urls: ["<all_urls>"],
-      clipboard: true,
-    },
-    created_at: mockNow,
-    updated_at: mockNow,
-  },
-  {
-    id: "task-shot",
-    name: "Homepage Screenshot Check",
-    description: "Open the homepage and save a screenshot for quick visual checks.",
-    script:
-      'await page.goto("https://example.com", { waitUntil: "load" });\nawait page.screenshot("home");\nlog.info("Screenshot saved");',
-    timeout_sec: 90,
-    api_version: "v1",
-    permissions: {
-      screenshots: true,
-      external_urls: ["<all_urls>"],
-      clipboard: true,
-    },
-    created_at: mockNow,
-    updated_at: mockNow,
-  },
-];
+let mockEnvironments: Environment[] = [];
+let mockTasks: AutomationTask[] = [];
 
 type PreviewLanguage = "zh-CN" | "en-US";
 
@@ -169,120 +81,57 @@ function previewLanguage(): PreviewLanguage {
     : "zh-CN";
 }
 
-function localizedMockEnvironments(language: PreviewLanguage): Environment[] {
-  if (language === "en-US") {
-    return mockEnvironments;
-  }
-
-  return [
-    {
-      ...mockEnvironments[0],
-      name: "默认 Chrome 环境",
-      tags: ["本机", "可见窗口"],
-      notes: "用于日常 smoke 和脚本调试。",
-      locale: "zh-CN",
-      timezone_id: "Asia/Shanghai",
-    },
-    {
-      ...mockEnvironments[1],
-      name: "代理验证环境",
-      tags: ["SOCKS5", "截图"],
-      notes: "用于检查代理、地区和产物输出。",
-    },
-  ];
-}
-
-function localizedMockTasks(language: PreviewLanguage): AutomationTask[] {
-  if (language === "en-US") {
-    return mockTasks;
-  }
-
-  return [
-    {
-      ...mockTasks[0],
-      name: "页面标题采集",
-      description: "打开目标页面，记录标题并输出 JSON 产物。",
-      script:
-        'await page.goto("https://example.com");\nconst title = await page.title();\nlog.info(`页面标题: ${title}`);\nawait run.outputJson("title", { title });',
-    },
-    {
-      ...mockTasks[1],
-      name: "首页截图检查",
-      description: "访问首页后保存截图，适合快速检查可视化状态。",
-      script:
-        'await page.goto("https://example.com", { waitUntil: "load" });\nawait page.screenshot("home");\nlog.info("截图已保存");',
-    },
-  ];
-}
-
-let mockRuns: TaskRun[] = [
-  {
-    id: "run-001",
-    batch_id: "batch-20260618",
-    task_id: "task-title",
-    environment_id: "env-main",
-    status: "succeeded",
-    attempt: 1,
-    queued_at: mockNow,
-    started_at: mockNow,
-    finished_at: mockNow,
-    artifacts_dir: "/tmp/orbit-browser/runs/run-001",
-  },
-  {
-    id: "run-002",
-    batch_id: "batch-20260618",
-    task_id: "task-shot",
-    environment_id: "env-proxy",
-    status: "running",
-    attempt: 1,
-    queued_at: mockNow,
-    started_at: mockNow,
-    artifacts_dir: "/tmp/orbit-browser/runs/run-002",
-  },
-];
+let mockRuns: TaskRun[] = [];
 
 function mockInvoke<TResult>(
   command: TauriCommand,
   args?: Record<string, unknown>,
 ): TResult {
   const language = previewLanguage();
-  const environments = localizedMockEnvironments(language);
-  const tasks = localizedMockTasks(language);
 
   switch (command) {
     case COMMANDS.listEnvironments:
-      return environments as TResult;
+      return mockEnvironments as TResult;
     case COMMANDS.getEnvironmentStatuses:
-      return [
-        {
-          environment_id: "env-main",
-          status: "stopped",
-          last_seen_at: mockNow,
-        },
-        {
-          cdp_port: 9222,
-          environment_id: "env-proxy",
-          last_seen_at: mockNow,
-          pid: 42810,
-          status: "running",
-        },
-      ] as TResult;
-    case COMMANDS.saveEnvironment:
-      return {
+      return mockEnvironments.map((environment) => ({
+        environment_id: environment.id,
+        status: "stopped",
+        last_seen_at: mockNow,
+      })) as TResult;
+    case COMMANDS.saveEnvironment: {
+      const environment = {
         ...(args?.input as EnvironmentDraft),
-        id: (args?.input as EnvironmentDraft | undefined)?.id ?? "env-preview",
+        id:
+          (args?.input as EnvironmentDraft | undefined)?.id ??
+          crypto.randomUUID(),
         created_at: mockNow,
         updated_at: mockNow,
-      } as TResult;
-    case COMMANDS.duplicateEnvironment:
-      return {
-        ...environments[0],
-        id: "env-copy",
+      } as Environment;
+      mockEnvironments = [
+        environment,
+        ...mockEnvironments.filter((item) => item.id !== environment.id),
+      ];
+      return environment as TResult;
+    }
+    case COMMANDS.duplicateEnvironment: {
+      const source = mockEnvironments.find((item) => item.id === args?.id);
+      if (!source) {
+        return undefined as TResult;
+      }
+      const environment = {
+        ...source,
+        id: crypto.randomUUID(),
         name:
-          language === "en-US"
-            ? `${environments[0].name} Copy`
-            : `${environments[0].name}副本`,
-      } as TResult;
+          language === "en-US" ? `${source.name} Copy` : `${source.name}副本`,
+        created_at: mockNow,
+        updated_at: mockNow,
+      };
+      mockEnvironments = [environment, ...mockEnvironments];
+      return environment as TResult;
+    }
+    case COMMANDS.deleteEnvironment:
+      mockEnvironments = mockEnvironments.filter((item) => item.id !== args?.id);
+      return undefined as TResult;
     case COMMANDS.startEnvironment:
     case COMMANDS.stopEnvironment:
     case COMMANDS.restartEnvironment:
@@ -293,33 +142,44 @@ function mockInvoke<TResult>(
       } as TResult;
     case COMMANDS.validateEnvironment:
       return undefined as TResult;
-    case COMMANDS.testEnvironmentProxy:
+    case COMMANDS.testEnvironmentProxy: {
+      const environment = mockEnvironments.find((item) => item.id === args?.id);
+      const proxyConfigured =
+        environment?.proxy_config && environment.proxy_config.kind !== "none";
       return {
         ok: true,
         message:
-          args?.id === "env-proxy"
+          proxyConfigured
             ? language === "en-US"
-              ? "Proxy reachable: 203.0.113.20 (America/Los_Angeles)"
-              : "代理连通：203.0.113.20 (America/Los_Angeles)"
+              ? "Proxy configured"
+              : "代理已配置"
             : language === "en-US"
-              ? "No proxy configured"
-              : "未配置代理",
-        status_code: args?.id === "env-proxy" ? 200 : null,
-        ip: args?.id === "env-proxy" ? "203.0.113.20" : null,
-        timezone_id:
-          args?.id === "env-proxy" ? "America/Los_Angeles" : "UTC",
+                ? "No proxy configured"
+                : "未配置代理",
+        status_code: proxyConfigured ? 200 : null,
+        ip: null,
+        timezone_id: environment?.timezone_id ?? null,
       } as TResult;
+    }
     case COMMANDS.openEnvironmentProfileDir:
       return undefined as TResult;
     case COMMANDS.listTasks:
-      return tasks as TResult;
-    case COMMANDS.saveTask:
-      return {
+      return mockTasks as TResult;
+    case COMMANDS.saveTask: {
+      const task = {
         ...(args?.input as AutomationTaskDraft),
-        id: (args?.input as AutomationTaskDraft | undefined)?.id ?? "task-preview",
+        id:
+          (args?.input as AutomationTaskDraft | undefined)?.id ??
+          crypto.randomUUID(),
         created_at: mockNow,
         updated_at: mockNow,
-      } as TResult;
+      } as AutomationTask;
+      mockTasks = [task, ...mockTasks.filter((item) => item.id !== task.id)];
+      return task as TResult;
+    }
+    case COMMANDS.deleteTask:
+      mockTasks = mockTasks.filter((item) => item.id !== args?.id);
+      return undefined as TResult;
     case COMMANDS.validateTaskScript:
       return { valid: true, errors: [], warnings: [] } as TResult;
     case COMMANDS.runTask:
@@ -329,10 +189,13 @@ function mockInvoke<TResult>(
           batch_id: "batch-preview",
           task_id:
             (args?.input as { task_id?: string } | undefined)?.task_id ??
+            mockTasks[0]?.id ??
             "task-preview",
           environment_id:
             (args?.input as { environment_ids?: string[] } | undefined)
-              ?.environment_ids?.[0] ?? "env-main",
+              ?.environment_ids?.[0] ??
+            mockEnvironments[0]?.id ??
+            "env-preview",
           status: "succeeded",
           attempt: 1,
           queued_at: mockNow,
@@ -344,7 +207,10 @@ function mockInvoke<TResult>(
       ];
       return {
         id: "batch-preview",
-        task_id: (args?.input as { task_id?: string } | undefined)?.task_id ?? "task-preview",
+        task_id:
+          (args?.input as { task_id?: string } | undefined)?.task_id ??
+          mockTasks[0]?.id ??
+          "task-preview",
         total_count: 1,
         queued_count: 0,
         running_count: 0,
@@ -432,23 +298,20 @@ function mockInvoke<TResult>(
           cdp_test_ok: true,
         },
         data: {
-          data_dir: "~/Library/Application Support/orbit browser",
-          sqlite_path: "~/Library/Application Support/orbit browser/orbit-browser.sqlite",
-          profiles_total_size: 168_200_000,
-          runs_total_size: 21_600_000,
+          data_dir: null,
+          sqlite_path: null,
+          profiles_total_size: 0,
+          runs_total_size: 0,
         },
         runtime: {
-          running_browser_count: 1,
-          current_queue_concurrency: 2,
+          running_browser_count: 0,
+          current_queue_concurrency: 0,
           stale_process_count: 0,
         },
         proxy: {
-          last_test_status: "ok",
-          last_test_at: mockNow,
-          message:
-            language === "en-US"
-              ? "Last proxy check passed"
-              : "最近一次代理检测通过",
+          last_test_status: null,
+          last_test_at: null,
+          message: null,
         },
         recovery: {
           interrupted_run_count: 0,
@@ -458,13 +321,11 @@ function mockInvoke<TResult>(
         generated_at: mockNow,
       } as TResult;
     case COMMANDS.cleanupStaleSessions:
-      return { cleaned: 1 } as TResult;
+      return { cleaned: 0 } as TResult;
     case COMMANDS.cleanupTempFiles:
-      return { cleaned: 3, freed_bytes: 2_048_000 } as TResult;
+      return { cleaned: 0, freed_bytes: 0 } as TResult;
     case COMMANDS.openDataDir:
       return undefined as TResult;
-    case COMMANDS.deleteEnvironment:
-    case COMMANDS.deleteTask:
     case COMMANDS.cancelRun:
     case COMMANDS.cancelBatch:
     case COMMANDS.retryRun:

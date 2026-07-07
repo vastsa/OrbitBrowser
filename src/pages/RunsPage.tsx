@@ -210,14 +210,6 @@ export function RunsPage() {
   return (
     <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
       <PageHeader
-        actions={
-          <Button
-            icon={<RefreshCw className="h-4 w-4" />}
-            onClick={() => void runsQuery.refetch()}
-          >
-            {copy.common.refresh}
-          </Button>
-        }
         eyebrow={text.eyebrow}
         metrics={
           <>
@@ -247,7 +239,6 @@ export function RunsPage() {
             />
           </>
         }
-        subtitle={text.subtitle}
         title={text.pageTitle}
       />
 

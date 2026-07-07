@@ -797,7 +797,6 @@ export function EnvironmentsPage() {
             />
           </>
         }
-        subtitle={text.subtitle}
         title={text.pageTitle}
       />
 

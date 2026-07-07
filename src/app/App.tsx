@@ -1,13 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { queryClient } from "@/app/queryClient";
 import { Layout } from "@/components/Layout";
 import { DiagnosticsPage } from "@/pages/DiagnosticsPage";
 import { EnvironmentsPage } from "@/pages/EnvironmentsPage";
-import { QuickStartPage } from "@/pages/QuickStartPage";
 import { RunsPage } from "@/pages/RunsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TaskDetailPage, TasksPage } from "@/pages/TasksPage";
@@ -55,7 +54,7 @@ export function App() {
       <HashRouter>
         <Routes>
           <Route element={<Layout />} path="/">
-            <Route element={<QuickStartPage />} index />
+            <Route element={<Navigate replace to="/environments" />} index />
             <Route element={<EnvironmentsPage />} path="environments" />
             <Route element={<TasksPage />} path="tasks" />
             <Route element={<TaskDetailPage />} path="tasks/new" />
