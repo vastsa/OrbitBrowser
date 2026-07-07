@@ -51,7 +51,9 @@ export function SettingsPage() {
     mutationFn: browserApi.detectChrome,
     onSuccess: (result) => {
       if (result.path) {
-        setSettings((current) => ({ ...current, chrome_path: result.path }));
+        const nextSettings = { ...settings, chrome_path: result.path };
+        setSettings(nextSettings);
+        saveMutation.mutate(nextSettings);
       }
     },
   });
@@ -98,12 +100,14 @@ export function SettingsPage() {
 
         {(settingsQuery.error ||
           saveMutation.error ||
+          detectMutation.error ||
           validateChromeMutation.error ||
           openDataDirMutation.error) && (
           <div className="mb-4 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
             {errorMessage(
               settingsQuery.error ??
                 saveMutation.error ??
+                detectMutation.error ??
                 validateChromeMutation.error ??
                 openDataDirMutation.error,
             )}
