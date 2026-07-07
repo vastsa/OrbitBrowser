@@ -7,6 +7,7 @@ import { queryClient } from "@/app/queryClient";
 import { Layout } from "@/components/Layout";
 import { DiagnosticsPage } from "@/pages/DiagnosticsPage";
 import { EnvironmentsPage } from "@/pages/EnvironmentsPage";
+import { QuickStartPage } from "@/pages/QuickStartPage";
 import { RunsPage } from "@/pages/RunsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TaskDetailPage, TasksPage } from "@/pages/TasksPage";
@@ -54,7 +55,8 @@ export function App() {
       <HashRouter>
         <Routes>
           <Route element={<Layout />} path="/">
-            <Route element={<EnvironmentsPage />} index />
+            <Route element={<QuickStartPage />} index />
+            <Route element={<EnvironmentsPage />} path="environments" />
             <Route element={<TasksPage />} path="tasks" />
             <Route element={<TaskDetailPage />} path="tasks/new" />
             <Route element={<TaskDetailPage />} path="tasks/:taskId" />

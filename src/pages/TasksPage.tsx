@@ -58,6 +58,10 @@ function createScriptTemplates(text: TaskCopy) {
       name: text.templates.batch,
       script: `const urls = ["https://example.com", "https://example.org"];\nfor (const url of urls) {\n  await page.goto(url);\n  log.info(await page.title());\n}`,
     },
+    {
+      name: text.templates.loginState,
+      script: `await page.goto("https://example.com", { waitUntil: "load" });\nconst state = await page.evaluate(() => {\n  const text = document.body?.innerText?.toLowerCase() ?? "";\n  return {\n    url: location.href,\n    title: document.title,\n    hasLoginText: /sign in|log in|login|登录/.test(text),\n    hasLogoutText: /sign out|log out|logout|退出/.test(text),\n  };\n});\nlog.info("${text.templateLogs.loginStateChecked}");\nawait run.outputJson("login-state", state);`,
+    },
   ];
 }
 

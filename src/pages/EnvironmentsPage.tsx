@@ -1,18 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckSquare,
   Copy,
   Edit2,
   FolderOpen,
   Globe2,
-  Layers3,
   Network,
   Play,
   Plus,
   Power,
   RefreshCw,
   Search,
+  Square,
   SquareStack,
+  Tags,
   Trash2,
+  Upload,
   Wifi,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -32,6 +35,7 @@ import { useI18n } from "@/i18n";
 import { browserApi } from "@/lib/tauri";
 import {
   errorMessage,
+  formatBytes,
   formatDateTime,
   normalizeProxy,
   normalizeTags,
@@ -46,6 +50,7 @@ import type {
   ProxyKind,
   ProxyTestResult,
   Settings,
+  TaskRun,
 } from "@/types/domain";
 
 const fallbackEnvironmentDefaults = {
@@ -56,6 +61,26 @@ const fallbackEnvironmentDefaults = {
 };
 
 const defaultProxyBypassList = ["localhost", "127.0.0.1", "::1"];
+const proxyKinds = new Set<ProxyKind>([
+  "none",
+  "http",
+  "https",
+  "socks4",
+  "socks5",
+]);
+const importPlaceholder =
+  "name,group,tags,proxy_kind,proxy_host,proxy_port,locale,timezone,start_url";
+
+type ImportPreview = {
+  drafts: EnvironmentDraft[];
+  errors: string[];
+};
+
+type BulkEditDraft = {
+  group_id: string;
+  tags: string;
+  mode: "append" | "replace";
+};
 
 function createDefaultEnvironment(
   settings?: Settings,
@@ -190,12 +215,205 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
   };
 }
 
+function parseTagsText(value: string): string[] {
+  return value
+    .split(/[;,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeProxyKind(value: string): ProxyKind {
+  const normalized = value.trim().toLowerCase() as ProxyKind;
+  return proxyKinds.has(normalized) ? normalized : "none";
+}
+
+function parseBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function splitCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseImportRows(input: string): Array<Record<string, unknown>> {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  }
+
+  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) {
+    return [];
+  }
+  const headers = splitCsvLine(lines[0]).map((header) =>
+    header.trim().toLowerCase(),
+  );
+  return lines.slice(1).map((line) => {
+    const cells = splitCsvLine(line);
+    return headers.reduce<Record<string, unknown>>((row, header, index) => {
+      row[header] = cells[index] ?? "";
+      return row;
+    }, {});
+  });
+}
+
+function readText(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return "";
+}
+
+function readNumber(row: Record<string, unknown>, keys: string[]): number | undefined {
+  const value = readText(row, keys);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function importRowsToDrafts(
+  rows: Array<Record<string, unknown>>,
+  base: EnvironmentDraft,
+): ImportPreview {
+  const errors: string[] = [];
+  const drafts = rows
+    .map((row, index) => {
+      const name = readText(row, ["name", "名称"]);
+      if (!name) {
+        errors.push(`Row ${index + 1}: name is required`);
+        return null;
+      }
+      const proxyKind = normalizeProxyKind(
+        readText(row, ["proxy_kind", "proxy", "代理类型"]),
+      );
+      const proxyHost = readText(row, ["proxy_host", "host", "代理主机"]);
+      const proxyPort = readNumber(row, ["proxy_port", "port", "代理端口"]);
+      const importedTags = parseTagsText(readText(row, ["tags", "标签"]));
+      const proxyConfig: ProxyConfig =
+        proxyKind !== "none"
+          ? {
+              kind: proxyKind,
+              host: proxyHost || undefined,
+              port: proxyPort,
+              username: readText(row, ["proxy_username", "username", "代理账号"]) || undefined,
+              password: readText(row, ["proxy_password", "password", "代理密码"]) || undefined,
+              bypass_list: defaultProxyBypassList,
+            }
+          : { kind: "none", bypass_list: defaultProxyBypassList };
+
+      return sanitizeEnvironmentDraft({
+        ...base,
+        id: readText(row, ["id"]) || undefined,
+        name,
+        group_id: readText(row, ["group", "group_id", "分组"]) || undefined,
+        tags: importedTags.length > 0 ? importedTags : base.tags ?? [],
+        notes: readText(row, ["notes", "备注"]) || undefined,
+        browser_kind:
+          (readText(row, ["browser", "browser_kind", "浏览器"]) as BrowserKind) ||
+          base.browser_kind,
+        chrome_path_override:
+          readText(row, ["chrome_path", "chrome_path_override", "chrome路径"]) ||
+          undefined,
+        proxy_config: proxyConfig,
+        locale: readText(row, ["locale", "语言"]) || base.locale,
+        timezone_id:
+          readText(row, ["timezone", "timezone_id", "时区"]) ||
+          base.timezone_id,
+        viewport_width:
+          readNumber(row, ["viewport_width", "width", "窗口宽度"]) ||
+          base.viewport_width,
+        viewport_height:
+          readNumber(row, ["viewport_height", "height", "窗口高度"]) ||
+          base.viewport_height,
+        start_url:
+          readText(row, ["start_url", "url", "启动地址"]) ||
+          base.start_url,
+        headless: parseBoolean(row.headless, base.headless),
+      });
+    })
+    .filter(Boolean) as EnvironmentDraft[];
+
+  return { drafts, errors };
+}
+
+function recentSuccessRate(environment: Environment, runs: TaskRun[]): number | null {
+  const recent = runs
+    .filter((run) => run.environment_id === environment.id)
+    .filter((run) =>
+      ["succeeded", "failed", "timed_out", "interrupted", "cancelled"].includes(run.status),
+    )
+    .slice(0, 10);
+  if (recent.length === 0) {
+    return null;
+  }
+  return recent.filter((run) => run.status === "succeeded").length / recent.length;
+}
+
 export function EnvironmentsPage() {
   const queryClient = useQueryClient();
   const { copy, format, language } = useI18n();
   const text = copy.environments;
   const [editing, setEditing] = useState<EnvironmentDraft | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Environment | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditDraft, setBulkEditDraft] = useState<BulkEditDraft>({
+    group_id: "",
+    tags: "",
+    mode: "append",
+  });
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [proxyResults, setProxyResults] = useState<Record<string, string>>({});
   const search = useUiStore((state) => state.environmentSearch);
   const group = useUiStore((state) => state.environmentGroup);
@@ -218,6 +436,16 @@ export function EnvironmentsPage() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: browserApi.getSettings,
+  });
+
+  const runsQuery = useQuery({
+    queryKey: ["runs", "environment-health"],
+    queryFn: () => browserApi.listRuns({ status: "all" }),
+  });
+
+  const diagnosticsQuery = useQuery({
+    queryKey: ["diagnostics"],
+    queryFn: browserApi.getDiagnostics,
   });
 
   const createNewDraft = () =>
@@ -312,6 +540,88 @@ export function EnvironmentsPage() {
     },
   });
 
+  const bulkImportMutation = useMutation({
+    mutationFn: async (drafts: EnvironmentDraft[]) => {
+      for (const draft of drafts) {
+        await browserApi.validateEnvironment(draft);
+        await browserApi.saveEnvironment(draft);
+      }
+      return drafts.length;
+    },
+    onSuccess: () => {
+      setImportOpen(false);
+      setImportText("");
+      invalidateEnvironments();
+    },
+  });
+
+  const bulkOperationMutation = useMutation({
+    mutationFn: async (operation: "start" | "stop" | "duplicate" | "delete" | "testProxy") => {
+      const selected = environments.filter((environment) =>
+        selectedIds.includes(environment.id),
+      );
+      for (const environment of selected) {
+        if (operation === "start") {
+          await browserApi.startEnvironment(environment.id);
+        } else if (operation === "stop") {
+          await browserApi.stopEnvironment(environment.id);
+        } else if (operation === "duplicate") {
+          await browserApi.duplicateEnvironment(environment.id);
+        } else if (operation === "delete") {
+          await browserApi.deleteEnvironment(environment.id, false);
+        } else if (operation === "testProxy") {
+          try {
+            const result = await browserApi.testEnvironmentProxy(environment.id);
+            setProxyResults((current) => ({
+              ...current,
+              [environment.id]: proxyResultText(result),
+            }));
+          } catch (error) {
+            setProxyResults((current) => ({
+              ...current,
+              [environment.id]: errorMessage(error),
+            }));
+          }
+        }
+      }
+    },
+    onSuccess: (_result, operation) => {
+      if (operation === "delete") {
+        setSelectedIds([]);
+        setBulkDeleteOpen(false);
+      }
+      invalidateEnvironments();
+      void queryClient.invalidateQueries({ queryKey: ["diagnostics"] });
+    },
+  });
+
+  const bulkEditMutation = useMutation({
+    mutationFn: async (input: BulkEditDraft) => {
+      const newTags = parseTagsText(input.tags);
+      const selected = environments.filter((environment) =>
+        selectedIds.includes(environment.id),
+      );
+      for (const environment of selected) {
+        const currentTags = normalizeTags(environment);
+        const tags =
+          input.mode === "replace"
+            ? newTags
+            : Array.from(new Set([...currentTags, ...newTags]));
+        await browserApi.saveEnvironment(
+          sanitizeEnvironmentDraft({
+            ...toDraft(environment),
+            group_id: input.group_id.trim() || environment.group_id || "",
+            tags,
+          }),
+        );
+      }
+    },
+    onSuccess: () => {
+      setBulkEditOpen(false);
+      invalidateEnvironments();
+    },
+  });
+
   const environments = environmentsQuery.data ?? [];
   const groups = useMemo(
     () =>
@@ -335,6 +645,97 @@ export function EnvironmentsPage() {
       (!tag || environmentTags.includes(tag))
     );
   });
+  const filteredIds = filtered.map((environment) => environment.id);
+  const selectedEnvironments = environments.filter((environment) =>
+    selectedIds.includes(environment.id),
+  );
+  const selectedCount = selectedEnvironments.length;
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const importPreview = useMemo<ImportPreview>(() => {
+    try {
+      return importRowsToDrafts(
+        parseImportRows(importText),
+        createDefaultEnvironment(settingsQuery.data, environments.length + 1, {
+          name: text.defaultName,
+          tag: text.defaultTag,
+        }),
+      );
+    } catch (error) {
+      return {
+        drafts: [],
+        errors: [error instanceof Error ? error.message : String(error)],
+      };
+    }
+  }, [environments.length, importText, settingsQuery.data, text.defaultName, text.defaultTag]);
+  const healthByEnvironment = useMemo(() => {
+    const runs = runsQuery.data ?? [];
+    return environments.reduce<Record<string, { ok: boolean; message: string }>>(
+      (acc, environment) => {
+        const runtime = readRuntimeStatus(statusesQuery.data, environment.id);
+        const proxy = normalizeProxy(environment);
+        const proxyResult = proxyResults[environment.id];
+        const successRate = recentSuccessRate(environment, runs);
+        const issues: string[] = [];
+        if (!settingsQuery.data?.chrome_path && !environment.chrome_path_override) {
+          issues.push(text.health.chromeMissing);
+        }
+        if (runtime.status === "crashed") {
+          issues.push(text.health.crashed);
+        }
+        if (proxy.kind !== "none" && !proxyResult) {
+          issues.push(text.health.proxyUntested);
+        }
+        if (
+          proxy.kind !== "none" &&
+          proxyResult &&
+          !proxyResult.includes(text.proxyReachable)
+        ) {
+          issues.push(text.health.proxyFailed);
+        }
+        if (successRate !== null && successRate < 0.6) {
+          issues.push(text.health.lowSuccessRate);
+        }
+        if ((diagnosticsQuery.data?.recovery?.stale_lock_count ?? 0) > 0) {
+          issues.push(text.health.profileLock);
+        }
+        const dataBytes =
+          (diagnosticsQuery.data?.data?.profiles_total_size ?? 0) +
+          (diagnosticsQuery.data?.data?.runs_total_size ?? 0);
+        if (dataBytes > 5 * 1024 * 1024 * 1024) {
+          issues.push(
+            format(text.health.diskUsage, { size: formatBytes(dataBytes) }),
+          );
+        }
+        acc[environment.id] = {
+          ok: issues.length === 0,
+          message:
+            issues.length > 0
+              ? issues.join(" / ")
+              : successRate === null
+                ? text.health.ready
+                : format(text.health.successRate, {
+                    rate: Math.round(successRate * 100),
+                  }),
+        };
+        return acc;
+      },
+      {},
+    );
+  }, [
+    environments,
+    diagnosticsQuery.data,
+    format,
+    proxyResults,
+    runsQuery.data,
+    settingsQuery.data?.chrome_path,
+    statusesQuery.data,
+    text.health,
+    text.proxyReachable,
+  ]);
+  const healthyCount = environments.filter(
+    (environment) => healthByEnvironment[environment.id]?.ok,
+  ).length;
 
   const busy =
     saveMutation.isPending ||
@@ -342,13 +743,19 @@ export function EnvironmentsPage() {
     duplicateMutation.isPending ||
     startMutation.isPending ||
     stopMutation.isPending ||
-    restartMutation.isPending;
+    restartMutation.isPending ||
+    bulkImportMutation.isPending ||
+    bulkOperationMutation.isPending ||
+    bulkEditMutation.isPending;
   const operationError =
     deleteMutation.error ??
     duplicateMutation.error ??
     startMutation.error ??
     stopMutation.error ??
     restartMutation.error ??
+    bulkImportMutation.error ??
+    bulkOperationMutation.error ??
+    bulkEditMutation.error ??
     openProfileMutation.error;
   const runningCount = environments.filter(
     (environment) =>
@@ -377,10 +784,10 @@ export function EnvironmentsPage() {
               value={String(runningCount)}
             />
             <MetricTile
-              icon={<Layers3 className="h-5 w-5" />}
-              label={text.metrics.groups}
-              tone="cyan"
-              value={String(groups.length)}
+              icon={<CheckSquare className="h-5 w-5" />}
+              label={text.metrics.healthy}
+              tone={healthyCount === environments.length ? "green" : "amber"}
+              value={`${healthyCount}/${environments.length}`}
             />
             <MetricTile
               icon={<Network className="h-5 w-5" />}
@@ -430,11 +837,97 @@ export function EnvironmentsPage() {
             ))}
           </SelectControl>
           <Button
+            icon={<Upload className="h-4 w-4" />}
+            onClick={() => setImportOpen(true)}
+          >
+            {text.bulk.import}
+          </Button>
+          <Button
             icon={<Plus className="h-4 w-4" />}
             onClick={() => setEditing(createNewDraft())}
             variant="primary"
           >
             {text.newEnvironment}
+          </Button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+          <Button
+            icon={
+              allFilteredSelected ? (
+                <CheckSquare className="h-4 w-4" />
+              ) : (
+                <Square className="h-4 w-4" />
+              )
+            }
+            onClick={() =>
+              setSelectedIds((current) =>
+                allFilteredSelected
+                  ? current.filter((id) => !filteredIds.includes(id))
+                  : Array.from(new Set([...current, ...filteredIds])),
+              )
+            }
+            size="sm"
+          >
+            {allFilteredSelected ? text.bulk.clearFiltered : text.bulk.selectFiltered}
+          </Button>
+          <span className="text-xs font-medium text-ink-500">
+            {format(text.bulk.selected, { count: selectedCount })}
+          </span>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Wifi className="h-4 w-4" />}
+            onClick={() => bulkOperationMutation.mutate("testProxy")}
+            size="sm"
+          >
+            {text.bulk.testProxy}
+          </Button>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Play className="h-4 w-4" />}
+            onClick={() => bulkOperationMutation.mutate("start")}
+            size="sm"
+          >
+            {text.bulk.start}
+          </Button>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Power className="h-4 w-4" />}
+            onClick={() => bulkOperationMutation.mutate("stop")}
+            size="sm"
+          >
+            {text.bulk.stop}
+          </Button>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Copy className="h-4 w-4" />}
+            onClick={() => bulkOperationMutation.mutate("duplicate")}
+            size="sm"
+          >
+            {text.bulk.duplicate}
+          </Button>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Tags className="h-4 w-4" />}
+            onClick={() => {
+              setBulkEditDraft({
+                group_id: selectedEnvironments[0]?.group_id ?? "",
+                tags: "",
+                mode: "append",
+              });
+              setBulkEditOpen(true);
+            }}
+            size="sm"
+          >
+            {text.bulk.editTags}
+          </Button>
+          <Button
+            disabled={selectedCount === 0 || busy}
+            icon={<Trash2 className="h-4 w-4" />}
+            onClick={() => setBulkDeleteOpen(true)}
+            size="sm"
+            variant="danger"
+          >
+            {text.bulk.delete}
           </Button>
         </div>
       </section>
@@ -470,24 +963,40 @@ export function EnvironmentsPage() {
         <section className="panel table-scroll environment-table-scroll min-h-0 min-w-0">
           <table className="w-full border-collapse">
             <colgroup>
+              <col className="w-[46px]" />
               <col className="w-[230px]" />
               <col className="w-[120px]" />
               <col className="w-[210px]" />
               <col className="w-[120px]" />
               <col className="w-[180px]" />
               <col className="w-[140px]" />
+              <col className="w-[180px]" />
               <col className="w-[110px]" />
               <col className="w-[130px]" />
               <col className="w-[220px]" />
             </colgroup>
             <thead className="table-header">
               <tr>
+                <th className="px-4 py-3">
+                  <input
+                    checked={allFilteredSelected}
+                    onChange={() =>
+                      setSelectedIds((current) =>
+                        allFilteredSelected
+                          ? current.filter((id) => !filteredIds.includes(id))
+                          : Array.from(new Set([...current, ...filteredIds])),
+                      )
+                    }
+                    type="checkbox"
+                  />
+                </th>
                 <th className="px-4 py-3">{text.table.name}</th>
                 <th className="px-4 py-3">{text.table.group}</th>
                 <th className="px-4 py-3">{text.table.proxy}</th>
                 <th className="px-4 py-3">{text.table.locale}</th>
                 <th className="px-4 py-3">{text.table.timezone}</th>
                 <th className="px-4 py-3">{text.table.viewport}</th>
+                <th className="px-4 py-3">{text.table.health}</th>
                 <th className="px-4 py-3">{copy.common.status}</th>
                 <th className="px-4 py-3">{text.table.updated}</th>
                 <th className="table-action-header">{copy.common.actions}</th>
@@ -500,8 +1009,22 @@ export function EnvironmentsPage() {
                   statusesQuery.data,
                   environment.id,
                 );
+                const health = healthByEnvironment[environment.id];
                 return (
                   <tr key={environment.id} className="table-row-hover">
+                    <td className="table-cell">
+                      <input
+                        checked={selectedIds.includes(environment.id)}
+                        onChange={(event) =>
+                          setSelectedIds((current) =>
+                            event.target.checked
+                              ? [...current, environment.id]
+                              : current.filter((id) => id !== environment.id),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                    </td>
                     <td className="table-cell">
                       <div className="flex items-start gap-3">
                         <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
@@ -558,6 +1081,18 @@ export function EnvironmentsPage() {
                       <span className="ml-1 text-xs text-ink-500">
                         @{environment.device_scale_factor}
                       </span>
+                    </td>
+                    <td className="table-cell text-ink-700">
+                      <div
+                        className={`max-w-44 truncate rounded-md px-2 py-1 text-xs font-medium ${
+                          health?.ok
+                            ? "bg-green-50 text-ok"
+                            : "bg-amber-50 text-warn"
+                        }`}
+                        title={health?.message}
+                      >
+                        {health?.message ?? text.health.ready}
+                      </div>
                     </td>
                     <td className="table-cell">
                       <StatusBadge status={runtime.status} />
@@ -655,6 +1190,149 @@ export function EnvironmentsPage() {
         onClose={() => setEditing(null)}
         onSave={(value) => saveMutation.mutate(value)}
       />
+      <Modal
+        footer={
+          <>
+            <Button onClick={() => setImportOpen(false)}>{copy.common.cancel}</Button>
+            <Button
+              disabled={
+                bulkImportMutation.isPending ||
+                importPreview.drafts.length === 0 ||
+                importPreview.errors.length > 0
+              }
+              onClick={() => bulkImportMutation.mutate(importPreview.drafts)}
+              variant="primary"
+            >
+              {format(text.bulk.importConfirm, {
+                count: importPreview.drafts.length,
+              })}
+            </Button>
+          </>
+        }
+        open={importOpen}
+        title={text.bulk.import}
+        widthClass="max-w-3xl"
+        onClose={() => setImportOpen(false)}
+      >
+        <div className="grid gap-3">
+          <p className="text-sm leading-6 text-ink-600">
+            {text.bulk.importHint}
+          </p>
+          <TextareaField
+            label={text.bulk.importInput}
+            onChange={(event) => setImportText(event.target.value)}
+            placeholder={importPlaceholder}
+            value={importText}
+          />
+          <div className="grid gap-2 rounded-lg border border-line bg-ink-50 p-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-ink-900">{text.bulk.importPreview}</span>
+              <span className="mono-tabular text-ink-500">
+                {importPreview.drafts.length}
+              </span>
+            </div>
+            {importPreview.errors.length > 0 ? (
+              <div className="grid gap-1 text-danger">
+                {importPreview.errors.map((error) => (
+                  <div key={error}>{error}</div>
+                ))}
+              </div>
+            ) : null}
+            <div className="grid max-h-48 gap-1 overflow-auto">
+              {importPreview.drafts.slice(0, 20).map((draft) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded bg-white px-2 py-1"
+                  key={`${draft.id ?? draft.name}-${draft.name}`}
+                >
+                  <span className="truncate text-ink-800">{draft.name}</span>
+                  <span className="truncate text-xs text-ink-500">
+                    {draft.group_id || copy.common.defaultGroup}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        footer={
+          <>
+            <Button onClick={() => setBulkEditOpen(false)}>{copy.common.cancel}</Button>
+            <Button
+              disabled={bulkEditMutation.isPending || selectedCount === 0}
+              onClick={() => bulkEditMutation.mutate(bulkEditDraft)}
+              variant="primary"
+            >
+              {text.bulk.apply}
+            </Button>
+          </>
+        }
+        open={bulkEditOpen}
+        title={text.bulk.editTags}
+        widthClass="max-w-md"
+        onClose={() => setBulkEditOpen(false)}
+      >
+        <div className="grid gap-3">
+          <p className="text-sm text-ink-600">
+            {format(text.bulk.editHint, { count: selectedCount })}
+          </p>
+          <TextField
+            label={text.fields.group}
+            onChange={(event) =>
+              setBulkEditDraft((current) => ({
+                ...current,
+                group_id: event.target.value,
+              }))
+            }
+            value={bulkEditDraft.group_id}
+          />
+          <TextField
+            label={text.fields.tags}
+            onChange={(event) =>
+              setBulkEditDraft((current) => ({
+                ...current,
+                tags: event.target.value,
+              }))
+            }
+            value={bulkEditDraft.tags}
+          />
+          <SelectField
+            label={text.bulk.tagMode}
+            onChange={(event) =>
+              setBulkEditDraft((current) => ({
+                ...current,
+                mode: event.target.value as BulkEditDraft["mode"],
+              }))
+            }
+            value={bulkEditDraft.mode}
+          >
+            <option value="append">{text.bulk.appendTags}</option>
+            <option value="replace">{text.bulk.replaceTags}</option>
+          </SelectField>
+        </div>
+      </Modal>
+      <Modal
+        footer={
+          <>
+            <Button onClick={() => setBulkDeleteOpen(false)}>{copy.common.cancel}</Button>
+            <Button
+              disabled={bulkOperationMutation.isPending || selectedCount === 0}
+              onClick={() => bulkOperationMutation.mutate("delete")}
+              variant="danger"
+            >
+              {text.bulk.delete}
+            </Button>
+          </>
+        }
+        open={bulkDeleteOpen}
+        title={text.bulk.delete}
+        widthClass="max-w-md"
+        onClose={() => setBulkDeleteOpen(false)}
+      >
+        <p className="text-sm leading-6 text-ink-700">
+          {format(text.bulk.deleteBody, { count: selectedCount })}
+        </p>
+      </Modal>
       <Modal
         footer={
           <>

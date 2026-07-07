@@ -2,6 +2,7 @@ import {
   Activity,
   ClipboardList,
   History,
+  Rocket,
   Settings,
   SquareStack,
 } from "lucide-react";
@@ -16,7 +17,8 @@ export function Layout() {
   const { copy, language } = useI18n();
   const navigation = useMemo(
     () => [
-      { to: "/", label: copy.layout.nav.environments, icon: SquareStack },
+      { to: "/", label: copy.layout.nav.quickStart, icon: Rocket },
+      { to: "/environments", label: copy.layout.nav.environments, icon: SquareStack },
       { to: "/tasks", label: copy.layout.nav.tasks, icon: ClipboardList },
       { to: "/runs", label: copy.layout.nav.runs, icon: History },
       { to: "/settings", label: copy.layout.nav.settings, icon: Settings },
@@ -26,7 +28,8 @@ export function Layout() {
   );
   const titleMap = useMemo<Record<string, { title: string; subtitle: string }>>(
     () => ({
-      "/": copy.layout.pages.environments,
+      "/": copy.layout.pages.quickStart,
+      "/environments": copy.layout.pages.environments,
       "/tasks": copy.layout.pages.tasks,
       "/runs": copy.layout.pages.runs,
       "/settings": copy.layout.pages.settings,

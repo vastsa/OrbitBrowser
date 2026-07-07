@@ -14,7 +14,7 @@ automation scripts, and inspectable run history.
 The project is in an early usable stage. The core workflow is already wired:
 
 - Desktop app startup and local runtime orchestration.
-- Environment, task, run history, settings, and diagnostics views.
+- Quick Start flow plus environment, task, run history, settings, and diagnostics views.
 - Automatic Chrome/Chromium/Edge detection, persisted global Chrome path, and
   per-environment path override.
 - Isolated profiles, proxy configuration, proxy-auth extension generation, and artifact management.

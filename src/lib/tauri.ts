@@ -323,13 +323,32 @@ function mockInvoke<TResult>(
     case COMMANDS.validateTaskScript:
       return { valid: true, errors: [], warnings: [] } as TResult;
     case COMMANDS.runTask:
+      mockRuns = [
+        {
+          id: "run-preview-success",
+          batch_id: "batch-preview",
+          task_id:
+            (args?.input as { task_id?: string } | undefined)?.task_id ??
+            "task-preview",
+          environment_id:
+            (args?.input as { environment_ids?: string[] } | undefined)
+              ?.environment_ids?.[0] ?? "env-main",
+          status: "succeeded",
+          attempt: 1,
+          queued_at: mockNow,
+          started_at: mockNow,
+          finished_at: mockNow,
+          artifacts_dir: "/tmp/orbit-browser/runs/run-preview-success",
+        },
+        ...mockRuns,
+      ];
       return {
         id: "batch-preview",
         task_id: (args?.input as { task_id?: string } | undefined)?.task_id ?? "task-preview",
         total_count: 1,
         queued_count: 0,
-        running_count: 1,
-        succeeded_count: 0,
+        running_count: 0,
+        succeeded_count: 1,
         failed_count: 0,
         cancelled_count: 0,
         created_at: mockNow,
@@ -506,6 +525,7 @@ function matchesRunFilters(run: TaskRun, filters?: RunFilters): boolean {
     return true;
   }
   return (
+    (!filters.batch_id || run.batch_id === filters.batch_id) &&
     (!filters.task_id || run.task_id === filters.task_id) &&
     (!filters.environment_id || run.environment_id === filters.environment_id) &&
     (!filters.status || filters.status === "all" || run.status === filters.status)

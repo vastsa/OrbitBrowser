@@ -188,6 +188,7 @@ export interface RunArtifact {
 }
 
 export interface RunFilters {
+  batch_id?: string;
   task_id?: string;
   environment_id?: string;
   status?: TaskRunStatus | "all";
