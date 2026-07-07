@@ -5,8 +5,8 @@
 Orbit Browser 是一个本地浏览器运行时编排器，用于管理隔离的
 Chrome/Chromium Profile、代理、自动化任务和运行产物。
 
-它基于 Tauri 2、React、TypeScript 和 Rust 构建，适合需要在本机多环境中
-稳定运行浏览器任务、保存日志和管理产物的场景。
+它基于 Tauri 2、React、TypeScript 和 Rust 构建，适合需要在本机管理浏览器
+环境、稳定运行可复用自动化脚本、保存日志并检查运行产物的场景。
 
 ## 当前状态
 
@@ -14,12 +14,13 @@ Chrome/Chromium Profile、代理、自动化任务和运行产物。
 
 - 本地桌面端可运行。
 - 支持环境、任务、运行记录、设置和诊断中心。
-- 支持 Chrome/Chromium/Edge 自动检测和手动路径配置。
+- 支持 Chrome/Chromium/Edge 自动检测、全局 Chrome 路径持久化和单环境路径覆盖。
 - 支持隔离 Profile、代理配置、代理认证扩展和运行产物管理。
-- 支持 GitHub Actions 在 tag 上自动打包 Linux release。
+- 支持 MCP stdio server，外部 agent 或工具可以检查/管理环境、任务、运行记录和浏览器页面。
+- 支持 GitHub Actions 在 tag 上自动打包 macOS、Windows 和 Linux release。
 
-macOS 和 Windows 安装包需要对应系统的 GitHub hosted 或 self-hosted runner
-才能完整自动化打包。
+发布工作流包含必需的 macOS、Windows x64 和 Linux x64 打包任务。Windows arm64
+和 Linux arm64 仍是实验性任务，失败时不会阻塞最终 Release 发布。
 
 ## 功能特性
 
@@ -30,6 +31,9 @@ macOS 和 Windows 安装包需要对应系统的 GitHub hosted 或 self-hosted r
 - 运行产物：保存截图、JSON、文本产物，并在 UI 中查看和打开目录。
 - 本地存储：SQLite 保存环境、任务、运行记录、日志和诊断状态。
 - 恢复能力：启动时恢复 queued batch，清理失效 session 和临时文件。
+- 诊断能力：Chrome 检测、CDP 检查、运行时计数、数据目录占用、失效 session
+  清理、临时文件清理和最近代理测试状态。
+- MCP 集成：应用二进制使用 `--mcp` 启动时，通过 stdio 暴露本地 Orbit 工具。
 
 ## 技术栈
 
@@ -87,6 +91,20 @@ cargo test --manifest-path src-tauri/Cargo.toml browser_runtime_smoke_executes_j
 pnpm check
 ```
 
+### MCP Server
+
+桌面端二进制可以作为本地 MCP stdio server 启动：
+
+```bash
+orbit-browser --mcp
+```
+
+MCP server 会暴露环境和任务列表、环境启动/停止、任务保存/运行、运行记录/日志/产物读取、
+浏览器页面导航、页面上下文读取、JavaScript 执行和截图等工具。它使用与桌面应用相同的
+本地 SQLite 数据目录。
+
+完整工具列表见 [MCP API](docs/zh-CN/mcp-api.md)。
+
 ## 项目结构
 
 ```text
@@ -95,6 +113,7 @@ pnpm check
 ├── docs/                   架构、脚本 API 和 release 文档
 ├── public/                 Web 静态资源
 ├── .github/workflows/      GitHub Actions 构建、测试和 release 配置
+├── CHANGELOG.md            版本变更记录
 ├── package.json            前端、Tauri 和检查命令
 └── README.md               项目入口文档
 ```
@@ -125,9 +144,10 @@ git push origin v0.1.0
 默认 pipeline 会：
 
 1. 运行 `pnpm build` 和 Rust 测试。
-2. 在 Linux runner 中执行 `pnpm tauri:build`。
-3. 上传 Linux 打包产物。
-4. 创建或更新 GitHub Release，并上传 Linux 打包产物。
+2. 创建或更新 draft GitHub Release。
+3. 在 macOS、Windows 和 Linux runner 上构建 Tauri bundle。
+4. 上传 Release assets 和匹配的 workflow artifacts。
+5. 所有必需打包任务通过后发布 draft Release。
 
 完整说明见 [Release 流程](docs/zh-CN/release.md)。
 

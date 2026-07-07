@@ -75,6 +75,10 @@ pub struct CleanupResult {
 
 #[tauri::command]
 pub fn get_diagnostics(state: State<'_, AppState>) -> AppResult<Diagnostics> {
+    get_diagnostics_inner(&state)
+}
+
+pub fn get_diagnostics_inner(state: &AppState) -> AppResult<Diagnostics> {
     let detection = chrome_locator::detect();
     let records = environment_repo::list_session_records(state.db())?;
     let environments = environment_repo::list(state.db())?;
@@ -142,6 +146,10 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> AppResult<Diagnostics> {
 
 #[tauri::command]
 pub fn cleanup_stale_sessions(state: State<'_, AppState>) -> AppResult<CleanupResult> {
+    cleanup_stale_sessions_inner(&state)
+}
+
+pub fn cleanup_stale_sessions_inner(state: &AppState) -> AppResult<CleanupResult> {
     let mut cleaned = 0;
     for record in environment_repo::list_session_records(state.db())? {
         if !process_manager::pid_alive(record.pid) {
@@ -166,6 +174,10 @@ pub fn cleanup_stale_sessions(state: State<'_, AppState>) -> AppResult<CleanupRe
 
 #[tauri::command]
 pub fn cleanup_temp_files(state: State<'_, AppState>) -> AppResult<CleanupResult> {
+    cleanup_temp_files_inner(&state)
+}
+
+pub fn cleanup_temp_files_inner(state: &AppState) -> AppResult<CleanupResult> {
     let temp_dir = state.data_dir().join("temp");
     let freed_bytes = dir_size(&temp_dir);
     let cleaned = count_entries(&temp_dir);

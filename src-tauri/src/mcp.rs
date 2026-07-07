@@ -1,15 +1,28 @@
 use crate::app_state::AppState;
-use crate::automation::{cancellation::CancellationToken, deno_runtime, task_runner};
+use crate::automation::{deno_runtime, task_runner};
 use crate::browser::cdp_client::CdpPage;
-use crate::commands::environments::{start_environment_inner, stop_environment_inner};
-use crate::domain::run::RunTaskInput;
-use crate::domain::task::SaveTaskInput;
+use crate::browser::chrome_locator;
+use crate::commands::diagnostics::{
+    cleanup_stale_sessions_inner, cleanup_temp_files_inner, get_diagnostics_inner,
+};
+use crate::commands::environments::{
+    delete_environment_inner, start_environment_inner, stop_environment_inner,
+};
+use crate::domain::environment::SaveEnvironmentInput;
+use crate::domain::run::{RunTaskInput, TaskRun, TaskRunStatus};
+use crate::domain::settings::SaveSettingsInput;
+use crate::domain::task::{SaveTaskInput, ValidateTaskScriptResult};
 use crate::errors::{AppError, AppResult};
-use crate::storage::{artifact_repo, environment_repo, log_repo, run_repo, task_repo};
+use crate::storage::{
+    artifact_repo, db::Db, environment_repo, legacy_cleanup, log_repo, run_repo, settings_repo,
+    task_repo,
+};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 #[derive(Debug, Deserialize)]
 struct RpcRequest {
@@ -91,11 +104,18 @@ async fn handle_request(state: AppState, request: RpcRequest) -> AppResult<Value
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let value = call_tool(state, name, arguments).await?;
-            Ok(json!({
-                "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value)? }],
-                "isError": false
-            }))
+            match call_tool(state, name, arguments).await {
+                Ok(value) => Ok(tool_result(value, false)?),
+                Err(err) => Ok(tool_result(
+                    json!({
+                        "code": err.code,
+                        "message": err.message,
+                        "details": err.details,
+                        "retryable": err.retryable
+                    }),
+                    true,
+                )?),
+            }
         }
         _ => Err(AppError::new(
             "mcp_method_not_found",
@@ -106,10 +126,35 @@ async fn handle_request(state: AppState, request: RpcRequest) -> AppResult<Value
 
 async fn call_tool(state: AppState, name: &str, arguments: Value) -> AppResult<Value> {
     match name {
+        "orbit_get_settings" => Ok(json!(settings_repo::get(state.db())?)),
+        "orbit_save_settings" => {
+            let input: SaveSettingsInput = serde_json::from_value(arguments)?;
+            Ok(json!(settings_repo::save(state.db(), input)?))
+        }
+        "orbit_detect_chrome" => Ok(json!(chrome_locator::detect())),
+        "orbit_get_diagnostics" => Ok(json!(get_diagnostics_inner(&state)?)),
+        "orbit_cleanup_stale_sessions" => Ok(json!(cleanup_stale_sessions_inner(&state)?)),
+        "orbit_cleanup_temp_files" => Ok(json!(cleanup_temp_files_inner(&state)?)),
         "orbit_list_environments" => Ok(json!(environment_repo::list(state.db())?)),
         "orbit_get_environment" => {
             let environment_id = required_str(&arguments, "environment_id")?;
             Ok(json!(environment_repo::get(state.db(), environment_id)?))
+        }
+        "orbit_save_environment" => {
+            let input: SaveEnvironmentInput = serde_json::from_value(arguments)?;
+            Ok(json!(environment_repo::save(state.db(), input)?))
+        }
+        "orbit_duplicate_environment" => {
+            let environment_id = required_str(&arguments, "environment_id")?;
+            Ok(json!(environment_repo::duplicate(
+                state.db(),
+                environment_id
+            )?))
+        }
+        "orbit_delete_environment" => {
+            let environment_id = required_str(&arguments, "environment_id")?;
+            delete_environment_inner(&state, environment_id)?;
+            Ok(json!({ "environment_id": environment_id, "deleted": true }))
         }
         "orbit_start_environment" => {
             let environment_id = required_str(&arguments, "environment_id")?;
@@ -123,13 +168,45 @@ async fn call_tool(state: AppState, name: &str, arguments: Value) -> AppResult<V
             Ok(json!({ "environment_id": environment_id, "status": "stopped" }))
         }
         "orbit_list_tasks" => Ok(json!(task_repo::list(state.db())?)),
+        "orbit_get_task" => {
+            let task_id = required_str(&arguments, "task_id")?;
+            Ok(json!(task_repo::get(state.db(), task_id)?))
+        }
         "orbit_save_task" => {
             let input: SaveTaskInput = serde_json::from_value(arguments)?;
             validate_script(&input.script)?;
             Ok(json!(task_repo::save(state.db(), input)?))
         }
+        "orbit_validate_task_script" => {
+            let script = required_str(&arguments, "script")?;
+            Ok(json!(validate_task_script(script)))
+        }
+        "orbit_delete_task" => {
+            let task_id = required_str(&arguments, "task_id")?;
+            delete_task(&state, task_id)?;
+            Ok(json!({ "task_id": task_id, "deleted": true }))
+        }
         "orbit_run_task" => run_task(state, arguments).await,
-        "orbit_list_runs" => Ok(json!(run_repo::list_runs(state.db())?)),
+        "orbit_cancel_run" => {
+            let run_id = required_str(&arguments, "run_id")?;
+            cancel_run(&state, run_id)?;
+            Ok(json!(run_repo::get_run(state.db(), run_id)?))
+        }
+        "orbit_cancel_batch" => {
+            let batch_id = required_str(&arguments, "batch_id")?;
+            let cancelled = cancel_batch(&state, batch_id)?;
+            Ok(json!({ "batch_id": batch_id, "cancelled_runs": cancelled }))
+        }
+        "orbit_retry_run" => {
+            let run_id = required_str(&arguments, "run_id")?;
+            let retry = retry_run(state, run_id).await?;
+            Ok(json!(retry))
+        }
+        "orbit_list_runs" => Ok(json!(list_runs(state.db(), &arguments)?)),
+        "orbit_get_run" => {
+            let run_id = required_str(&arguments, "run_id")?;
+            Ok(json!(run_repo::get_run(state.db(), run_id)?))
+        }
         "orbit_get_run_logs" => {
             let run_id = required_str(&arguments, "run_id")?;
             Ok(json!(log_repo::list(state.db(), run_id)?))
@@ -137,6 +214,11 @@ async fn call_tool(state: AppState, name: &str, arguments: Value) -> AppResult<V
         "orbit_list_run_artifacts" => {
             let run_id = required_str(&arguments, "run_id")?;
             Ok(json!(artifact_repo::list(state.db(), run_id)?))
+        }
+        "orbit_delete_run" => {
+            let run_id = required_str(&arguments, "run_id")?;
+            delete_run(&state, run_id)?;
+            Ok(json!({ "run_id": run_id, "deleted": true }))
         }
         "orbit_browser_goto" => {
             let mut page = page_for_environment(&state, &arguments).await?;
@@ -222,25 +304,233 @@ async fn run_task(state: AppState, arguments: Value) -> AppResult<Value> {
     let task = task_repo::get(state.db(), &input.task_id)?;
     let options = input.options.clone().unwrap_or_default();
     let batch = run_repo::create_queued_batch(state.db(), input, task.timeout_sec)?;
-    let runs = run_repo::list_runs_by_batch(state.db(), &batch.id)?;
-
-    for run in runs {
-        let token = CancellationToken::default();
-        let _ = task_runner::execute_task_run(
-            state.clone(),
-            None,
-            run,
-            task.clone(),
-            options.clone(),
-            token,
-        )
-        .await;
-    }
-
+    spawn_mcp_batch_runs(state.clone(), batch.id.clone(), task, options);
     Ok(json!({
         "batch": run_repo::get_batch(state.db(), &batch.id)?,
         "runs": run_repo::list_runs_by_batch(state.db(), &batch.id)?
     }))
+}
+
+async fn retry_run(state: AppState, run_id: &str) -> AppResult<TaskRun> {
+    let retry = run_repo::create_retry_run(state.db(), run_id)?;
+    let task = task_repo::get(state.db(), &retry.task_id)?;
+    let batch = retry
+        .batch_id
+        .as_deref()
+        .and_then(|id| run_repo::get_batch(state.db(), id).ok());
+    let options = batch
+        .as_ref()
+        .map(|batch| batch.options.clone())
+        .unwrap_or_default();
+    spawn_mcp_run(state.clone(), retry.id.clone(), task, options);
+    run_repo::get_run(state.db(), &retry.id)
+}
+
+fn spawn_mcp_batch_runs(
+    state: AppState,
+    batch_id: String,
+    task: crate::domain::task::AutomationTask,
+    options: crate::domain::run::RunOptions,
+) {
+    tokio::spawn(async move {
+        let runs = match run_repo::list_runs_by_batch(state.db(), &batch_id) {
+            Ok(runs) => runs,
+            Err(err) => {
+                tracing::warn!(batch_id, error = %err, "Failed to read MCP batch runs");
+                return;
+            }
+        };
+
+        if options.stop_on_first_error {
+            let mut failed = false;
+            for run in runs {
+                if run.status != TaskRunStatus::Queued {
+                    continue;
+                }
+                if failed {
+                    let _ = run_repo::set_status(state.db(), &run.id, TaskRunStatus::Cancelled);
+                    continue;
+                }
+                failed =
+                    execute_mcp_run(state.clone(), run.id.clone(), task.clone(), options.clone())
+                        .await
+                        .is_err();
+            }
+            return;
+        }
+
+        let semaphore = Arc::new(Semaphore::new(options.max_concurrency.max(1) as usize));
+        let mut handles = Vec::new();
+        for run in runs {
+            if run.status != TaskRunStatus::Queued {
+                continue;
+            }
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                continue;
+            };
+            let state = state.clone();
+            let task = task.clone();
+            let options = options.clone();
+            handles.push(tokio::spawn(async move {
+                let _permit = permit;
+                let _ = execute_mcp_run(state, run.id, task, options).await;
+            }));
+        }
+        for handle in handles {
+            let _ = handle.await;
+        }
+    });
+}
+
+fn spawn_mcp_run(
+    state: AppState,
+    run_id: String,
+    task: crate::domain::task::AutomationTask,
+    options: crate::domain::run::RunOptions,
+) {
+    tokio::spawn(async move {
+        let _ = execute_mcp_run(state, run_id, task, options).await;
+    });
+}
+
+async fn execute_mcp_run(
+    state: AppState,
+    run_id: String,
+    task: crate::domain::task::AutomationTask,
+    options: crate::domain::run::RunOptions,
+) -> AppResult<()> {
+    let run = run_repo::get_run(state.db(), &run_id)?;
+    if run.status != TaskRunStatus::Queued {
+        return Ok(());
+    }
+    let token = state.register_cancellation(&run_id);
+    let result =
+        task_runner::execute_task_run(state.clone(), None, run, task, options, token).await;
+    state.remove_cancellation(&run_id);
+    result
+}
+
+fn cancel_run(state: &AppState, run_id: &str) -> AppResult<()> {
+    let run = run_repo::get_run(state.db(), run_id)?;
+    if is_terminal_status(&run.status) {
+        return Ok(());
+    }
+    let status = if state.cancel_run(run_id) {
+        TaskRunStatus::CancelRequested
+    } else {
+        TaskRunStatus::Cancelled
+    };
+    run_repo::set_status(state.db(), run_id, status)
+}
+
+fn cancel_batch(state: &AppState, batch_id: &str) -> AppResult<usize> {
+    let mut cancelled = 0;
+    for run in run_repo::list_runs_by_batch(state.db(), batch_id)? {
+        if is_terminal_status(&run.status) {
+            continue;
+        }
+        let status = if state.cancel_run(&run.id) {
+            TaskRunStatus::CancelRequested
+        } else {
+            TaskRunStatus::Cancelled
+        };
+        run_repo::set_status(state.db(), &run.id, status)?;
+        cancelled += 1;
+    }
+    Ok(cancelled)
+}
+
+fn delete_task(state: &AppState, task_id: &str) -> AppResult<()> {
+    task_repo::get(state.db(), task_id)?;
+    let artifact_dirs = run_repo::delete_runs_for_task(state.db(), task_id)?;
+    legacy_cleanup::delete_ai_conversations_for_task(state.db(), task_id)?;
+    legacy_cleanup::clear_agent_task_reference(state.db(), task_id)?;
+    task_repo::hard_delete(state.db(), task_id)?;
+    cleanup_artifact_dirs(state, artifact_dirs);
+    Ok(())
+}
+
+fn delete_run(state: &AppState, run_id: &str) -> AppResult<()> {
+    let run = run_repo::get_run(state.db(), run_id)?;
+    if !is_terminal_status(&run.status) {
+        return Err(AppError::new(
+            "run_active",
+            "Active runs cannot be deleted directly. Cancel them first.",
+        ));
+    }
+    if let Some(relative_dir) = run_repo::delete_run(state.db(), run_id)? {
+        let path = state.data_dir().join(relative_dir);
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_artifact_dirs(state: &AppState, artifact_dirs: Vec<String>) {
+    for relative_dir in artifact_dirs {
+        let path = state.data_dir().join(relative_dir);
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
+
+fn list_runs(db: &Db, arguments: &Value) -> AppResult<Vec<TaskRun>> {
+    let task_id = optional_str(arguments, "task_id");
+    let environment_id = optional_str(arguments, "environment_id");
+    let batch_id = optional_str(arguments, "batch_id");
+    let status = optional_str(arguments, "status");
+    let limit = arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(200)
+        .clamp(1, 500) as usize;
+
+    let mut runs = if let Some(batch_id) = batch_id {
+        run_repo::list_runs_by_batch(db, batch_id)?
+    } else {
+        run_repo::list_runs(db)?
+    };
+    runs.retain(|run| {
+        task_id.is_none_or(|value| run.task_id == value)
+            && environment_id.is_none_or(|value| run.environment_id == value)
+            && status.is_none_or(|value| value == "all" || run_status_text(&run.status) == value)
+    });
+    runs.truncate(limit);
+    Ok(runs)
+}
+
+fn validate_task_script(script: &str) -> ValidateTaskScriptResult {
+    let trimmed = script.trim();
+    if trimmed.is_empty() {
+        return ValidateTaskScriptResult {
+            valid: false,
+            errors: vec!["Script cannot be empty".to_string()],
+            warnings: Vec::new(),
+        };
+    }
+    if let Err(err) = deno_runtime::validate_script_surface(trimmed) {
+        return ValidateTaskScriptResult {
+            valid: false,
+            errors: vec![err.message],
+            warnings: Vec::new(),
+        };
+    }
+    let open_braces = trimmed.chars().filter(|ch| *ch == '{').count();
+    let close_braces = trimmed.chars().filter(|ch| *ch == '}').count();
+    if open_braces != close_braces {
+        return ValidateTaskScriptResult {
+            valid: false,
+            errors: vec!["Script braces are not balanced".to_string()],
+            warnings: Vec::new(),
+        };
+    }
+    ValidateTaskScriptResult {
+        valid: true,
+        errors: Vec::new(),
+        warnings: Vec::new(),
+    }
 }
 
 async fn page_for_environment(state: &AppState, arguments: &Value) -> AppResult<CdpPage> {
@@ -261,16 +551,149 @@ fn validate_script(script: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn is_terminal_status(status: &TaskRunStatus) -> bool {
+    matches!(
+        status,
+        TaskRunStatus::Succeeded
+            | TaskRunStatus::Failed
+            | TaskRunStatus::Cancelled
+            | TaskRunStatus::TimedOut
+            | TaskRunStatus::Interrupted
+    )
+}
+
+fn run_status_text(status: &TaskRunStatus) -> &'static str {
+    match status {
+        TaskRunStatus::Queued => "queued",
+        TaskRunStatus::Starting => "starting",
+        TaskRunStatus::Running => "running",
+        TaskRunStatus::CancelRequested => "cancel_requested",
+        TaskRunStatus::Succeeded => "succeeded",
+        TaskRunStatus::Failed => "failed",
+        TaskRunStatus::Cancelled => "cancelled",
+        TaskRunStatus::TimedOut => "timed_out",
+        TaskRunStatus::Interrupted => "interrupted",
+    }
+}
+
+fn tool_result(value: Value, is_error: bool) -> AppResult<Value> {
+    Ok(json!({
+        "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value)? }],
+        "isError": is_error
+    }))
+}
+
 fn tools() -> Vec<Value> {
     vec![
         tool(
+            "orbit_get_settings",
+            "Read Orbit global settings, including persisted Chrome path and default runtime options.",
+            empty_schema(),
+        ),
+        tool(
+            "orbit_save_settings",
+            "Update Orbit global settings.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "chrome_path": { "type": ["string", "null"] },
+                    "default_concurrency": { "type": "integer", "minimum": 1 },
+                    "default_locale": { "type": "string" },
+                    "default_timezone_id": { "type": "string" },
+                    "default_viewport_width": { "type": "integer", "minimum": 320 },
+                    "default_viewport_height": { "type": "integer", "minimum": 240 }
+                },
+                "required": [
+                    "default_concurrency",
+                    "default_locale",
+                    "default_timezone_id",
+                    "default_viewport_width",
+                    "default_viewport_height"
+                ]
+            }),
+        ),
+        tool(
+            "orbit_detect_chrome",
+            "Detect installed Chrome, Chromium, or Edge executable candidates.",
+            empty_schema(),
+        ),
+        tool(
+            "orbit_get_diagnostics",
+            "Read platform diagnostics for Chrome, data directory size, runtime state, recovery, and warnings.",
+            empty_schema(),
+        ),
+        tool(
+            "orbit_cleanup_stale_sessions",
+            "Remove stale browser session records and profile locks whose processes are no longer alive.",
+            empty_schema(),
+        ),
+        tool(
+            "orbit_cleanup_temp_files",
+            "Delete Orbit temporary files such as generated proxy-auth extensions.",
+            empty_schema(),
+        ),
+        tool(
             "orbit_list_environments",
             "List Orbit browser environments.",
-            json!({ "type": "object", "properties": {} }),
+            empty_schema(),
         ),
         tool(
             "orbit_get_environment",
             "Get one Orbit environment.",
+            environment_id_schema(),
+        ),
+        tool(
+            "orbit_save_environment",
+            "Create or update an Orbit environment.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": ["string", "null"] },
+                    "name": { "type": "string" },
+                    "group_id": { "type": ["string", "null"] },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "notes": { "type": ["string", "null"] },
+                    "browser_kind": { "type": "string", "enum": ["chrome", "chromium"] },
+                    "chrome_path_override": { "type": ["string", "null"] },
+                    "proxy_config": { "type": "object" },
+                    "locale": { "type": "string" },
+                    "timezone_id": { "type": ["string", "null"] },
+                    "geolocation_latitude": { "type": ["number", "null"] },
+                    "geolocation_longitude": { "type": ["number", "null"] },
+                    "user_agent": { "type": ["string", "null"] },
+                    "platform": { "type": ["string", "null"] },
+                    "web_rtc_protection": { "type": "boolean" },
+                    "viewport_width": { "type": "integer", "minimum": 320 },
+                    "viewport_height": { "type": "integer", "minimum": 240 },
+                    "device_scale_factor": { "type": "number", "minimum": 0.1 },
+                    "environment_mode": { "type": "string", "enum": ["standard", "custom"] },
+                    "seed": { "type": ["string", "null"] },
+                    "headless": { "type": "boolean" },
+                    "start_url": { "type": ["string", "null"] }
+                },
+                "required": [
+                    "name",
+                    "tags",
+                    "browser_kind",
+                    "proxy_config",
+                    "locale",
+                    "web_rtc_protection",
+                    "viewport_width",
+                    "viewport_height",
+                    "device_scale_factor",
+                    "environment_mode",
+                    "headless"
+                ]
+            }),
+        ),
+        tool(
+            "orbit_duplicate_environment",
+            "Duplicate one Orbit environment.",
+            environment_id_schema(),
+        ),
+        tool(
+            "orbit_delete_environment",
+            "Delete one Orbit environment and its related runs, logs, artifacts, and profile files.",
             environment_id_schema(),
         ),
         tool(
@@ -286,7 +709,12 @@ fn tools() -> Vec<Value> {
         tool(
             "orbit_list_tasks",
             "List automation tasks.",
-            json!({ "type": "object", "properties": {} }),
+            empty_schema(),
+        ),
+        tool(
+            "orbit_get_task",
+            "Get one automation task.",
+            task_id_schema(),
         ),
         tool(
             "orbit_save_task",
@@ -305,8 +733,24 @@ fn tools() -> Vec<Value> {
             }),
         ),
         tool(
+            "orbit_validate_task_script",
+            "Validate an automation task script without saving it.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "script": { "type": "string" }
+                },
+                "required": ["script"]
+            }),
+        ),
+        tool(
+            "orbit_delete_task",
+            "Delete one automation task and its related run history, logs, and local artifacts.",
+            task_id_schema(),
+        ),
+        tool(
             "orbit_run_task",
-            "Run an automation task for one or more environments.",
+            "Queue an automation task for one or more environments and execute it in the background.",
             json!({
                 "type": "object",
                 "properties": {
@@ -318,9 +762,53 @@ fn tools() -> Vec<Value> {
             }),
         ),
         tool(
+            "orbit_cancel_run",
+            "Cancel one queued or active task run.",
+            run_id_schema(),
+        ),
+        tool(
+            "orbit_cancel_batch",
+            "Cancel queued or active runs in a batch.",
+            batch_id_schema(),
+        ),
+        tool(
+            "orbit_retry_run",
+            "Create a retry run for an existing task run and execute it in the background.",
+            run_id_schema(),
+        ),
+        tool(
             "orbit_list_runs",
-            "List task runs.",
-            json!({ "type": "object", "properties": {} }),
+            "List task runs with optional filters.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task_id": { "type": "string" },
+                    "environment_id": { "type": "string" },
+                    "batch_id": { "type": "string" },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "all",
+                            "queued",
+                            "starting",
+                            "running",
+                            "cancel_requested",
+                            "succeeded",
+                            "failed",
+                            "cancelled",
+                            "timed_out",
+                            "interrupted"
+                        ],
+                        "default": "all"
+                    },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 200 }
+                }
+            }),
+        ),
+        tool(
+            "orbit_get_run",
+            "Get one task run.",
+            run_id_schema(),
         ),
         tool(
             "orbit_get_run_logs",
@@ -330,6 +818,11 @@ fn tools() -> Vec<Value> {
         tool(
             "orbit_list_run_artifacts",
             "List artifacts for a task run.",
+            run_id_schema(),
+        ),
+        tool(
+            "orbit_delete_run",
+            "Delete one completed task run and its logs and local artifacts.",
             run_id_schema(),
         ),
         tool(
@@ -443,11 +936,27 @@ fn environment_id_schema() -> Value {
     })
 }
 
+fn task_id_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "task_id": { "type": "string" } },
+        "required": ["task_id"]
+    })
+}
+
 fn run_id_schema() -> Value {
     json!({
         "type": "object",
         "properties": { "run_id": { "type": "string" } },
         "required": ["run_id"]
+    })
+}
+
+fn batch_id_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "batch_id": { "type": "string" } },
+        "required": ["batch_id"]
     })
 }
 
@@ -462,6 +971,10 @@ fn selector_schema() -> Value {
     })
 }
 
+fn empty_schema() -> Value {
+    json!({ "type": "object", "properties": {} })
+}
+
 fn required_str<'a>(value: &'a Value, key: &str) -> AppResult<&'a str> {
     value.get(key).and_then(Value::as_str).ok_or_else(|| {
         AppError::new(
@@ -469,6 +982,13 @@ fn required_str<'a>(value: &'a Value, key: &str) -> AppResult<&'a str> {
             format!("Missing required string argument: {key}"),
         )
     })
+}
+
+fn optional_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|item| !item.trim().is_empty())
 }
 
 fn required_number(value: &Value, key: &str) -> AppResult<f64> {
@@ -509,8 +1029,14 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(names.contains(&"orbit_list_environments".to_string()));
+        assert!(names.contains(&"orbit_get_settings".to_string()));
+        assert!(names.contains(&"orbit_get_diagnostics".to_string()));
+        assert!(names.contains(&"orbit_save_environment".to_string()));
         assert!(names.contains(&"orbit_save_task".to_string()));
+        assert!(names.contains(&"orbit_validate_task_script".to_string()));
         assert!(names.contains(&"orbit_run_task".to_string()));
+        assert!(names.contains(&"orbit_cancel_run".to_string()));
+        assert!(names.contains(&"orbit_get_run".to_string()));
         assert!(names.contains(&"orbit_browser_context".to_string()));
         assert!(names.contains(&"orbit_browser_goto".to_string()));
         assert!(names.contains(&"orbit_browser_wait".to_string()));
