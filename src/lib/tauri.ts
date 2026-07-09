@@ -20,6 +20,7 @@ import type {
   BrowserContextSnapshot,
   ProxyTestResult,
   RunArtifact,
+  RunArtifactContent,
   RunBatch,
   RunFilters,
   RunLog,
@@ -55,7 +56,9 @@ export const COMMANDS = {
   listRuns: "list_runs",
   getRunLogs: "get_run_logs",
   listRunArtifacts: "list_run_artifacts",
+  readRunArtifact: "read_run_artifact",
   deleteRun: "delete_run",
+  deleteRuns: "delete_runs",
   openRunArtifact: "open_run_artifact",
   openRunArtifactsDir: "open_run_artifacts_dir",
   getSettings: "get_settings",
@@ -88,7 +91,10 @@ const mockNow = new Date().toISOString();
 
 let mockEnvironments: Environment[] = [];
 let mockTasks: AutomationTask[] = [];
-const mockAgentHistories: Record<string, Record<string, AgentHistorySnapshot>> = {};
+const mockAgentHistories: Record<
+  string,
+  Record<string, AgentHistorySnapshot>
+> = {};
 
 type PreviewLanguage = "zh-CN" | "en-US";
 
@@ -151,7 +157,9 @@ function mockInvoke<TResult>(
       return environment as TResult;
     }
     case COMMANDS.deleteEnvironment:
-      mockEnvironments = mockEnvironments.filter((item) => item.id !== args?.id);
+      mockEnvironments = mockEnvironments.filter(
+        (item) => item.id !== args?.id,
+      );
       return undefined as TResult;
     case COMMANDS.startEnvironment:
     case COMMANDS.stopEnvironment:
@@ -169,14 +177,13 @@ function mockInvoke<TResult>(
         environment?.proxy_config && environment.proxy_config.kind !== "none";
       return {
         ok: true,
-        message:
-          proxyConfigured
-            ? language === "en-US"
-              ? "Proxy configured"
-              : "代理已配置"
-            : language === "en-US"
-                ? "No proxy configured"
-                : "未配置代理",
+        message: proxyConfigured
+          ? language === "en-US"
+            ? "Proxy configured"
+            : "代理已配置"
+          : language === "en-US"
+            ? "No proxy configured"
+            : "未配置代理",
         status_code: proxyConfigured ? 200 : null,
         ip: null,
         timezone_id: environment?.timezone_id ?? null,
@@ -286,12 +293,29 @@ function mockInvoke<TResult>(
           created_at: mockNow,
         },
       ] as TResult;
+    case COMMANDS.readRunArtifact:
+      return {
+        path: String(
+          args?.path ?? "/tmp/orbit-browser/runs/run-001/title.json",
+        ),
+        label: "title.json",
+        kind: "json",
+        content: JSON.stringify({ title: "Example Domain" }, null, 2),
+        bytes: 31,
+        truncated: false,
+      } as TResult;
     case COMMANDS.deleteRun:
       mockRuns = mockRuns.filter((run) => run.id !== args?.runId);
       return undefined as TResult;
+    case COMMANDS.deleteRuns: {
+      const runIds = new Set(args?.runIds as string[] | undefined);
+      mockRuns = mockRuns.filter((run) => !runIds.has(run.id));
+      return undefined as TResult;
+    }
     case COMMANDS.getSettings:
       return {
-        chrome_path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        chrome_path:
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         default_concurrency: 2,
         default_locale: "zh-CN",
         default_timezone_id: "Asia/Shanghai",
@@ -319,12 +343,15 @@ function mockInvoke<TResult>(
         title: "Example Domain",
         screenshot_base64: null,
         html_excerpt: "<html><body>Example Domain</body></html>",
-        visible_text: "Example Domain\nThis domain is for use in illustrative examples.",
+        visible_text:
+          "Example Domain\nThis domain is for use in illustrative examples.",
         interactive_elements: [
           { kind: "link", label: "More information", selector: "a" },
         ],
         console_entries: [],
-        network_entries: [{ method: "GET", url: "https://example.com", status: 200 }],
+        network_entries: [
+          { method: "GET", url: "https://example.com", status: 200 },
+        ],
       } as TResult;
     case COMMANDS.listAgentHistories: {
       const environmentId = String(args?.environmentId ?? "preview");
@@ -338,23 +365,25 @@ function mockInvoke<TResult>(
           message_count: snapshot.messages.length,
           path: snapshot.path,
         }))
-        .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""))) as TResult;
+        .sort((left, right) =>
+          String(right.updated_at ?? "").localeCompare(
+            String(left.updated_at ?? ""),
+          ),
+        ) as TResult;
     }
     case COMMANDS.getAgentHistory: {
       const environmentId = String(args?.environmentId ?? "preview");
       const sessionId = String(args?.sessionId ?? "default");
-      return (
-        mockAgentHistories[environmentId]?.[sessionId] ?? {
-          environment_id: environmentId,
-          session_id: sessionId,
-          title: "新对话",
-          messages: [],
-          api_messages: [],
-          created_at: null,
-          updated_at: null,
-          path: `/tmp/orbit-browser/agent-history/${environmentId}/${sessionId}.jsonl`,
-        }
-      ) as TResult;
+      return (mockAgentHistories[environmentId]?.[sessionId] ?? {
+        environment_id: environmentId,
+        session_id: sessionId,
+        title: "新对话",
+        messages: [],
+        api_messages: [],
+        created_at: null,
+        updated_at: null,
+        path: `/tmp/orbit-browser/agent-history/${environmentId}/${sessionId}.jsonl`,
+      }) as TResult;
     }
     case COMMANDS.saveAgentHistory: {
       const input = args?.input as SaveAgentHistoryInput | undefined;
@@ -372,12 +401,14 @@ function mockInvoke<TResult>(
         environment_id: environmentId,
         session_id: sessionId,
         title:
-          typeof firstUserMessage?.content === "string" && firstUserMessage.content.trim()
+          typeof firstUserMessage?.content === "string" &&
+          firstUserMessage.content.trim()
             ? firstUserMessage.content.trim().slice(0, 40)
             : "新对话",
         messages: input?.messages ?? [],
         api_messages: input?.api_messages ?? [],
-        created_at: mockAgentHistories[environmentId][sessionId]?.created_at ?? mockNow,
+        created_at:
+          mockAgentHistories[environmentId][sessionId]?.created_at ?? mockNow,
         updated_at: mockNow,
         path: `/tmp/orbit-browser/agent-history/${environmentId}/${sessionId}.jsonl`,
       };
@@ -520,8 +551,11 @@ function matchesRunFilters(run: TaskRun, filters?: RunFilters): boolean {
   return (
     (!filters.batch_id || run.batch_id === filters.batch_id) &&
     (!filters.task_id || run.task_id === filters.task_id) &&
-    (!filters.environment_id || run.environment_id === filters.environment_id) &&
-    (!filters.status || filters.status === "all" || run.status === filters.status)
+    (!filters.environment_id ||
+      run.environment_id === filters.environment_id) &&
+    (!filters.status ||
+      filters.status === "all" ||
+      run.status === filters.status)
   );
 }
 
@@ -530,15 +564,21 @@ export const browserApi = {
     invokeCommand<Environment[]>(COMMANDS.listEnvironments),
 
   saveEnvironment: (environment: EnvironmentDraft) =>
-    invokeCommand<Environment>(COMMANDS.saveEnvironment, { input: environment }),
+    invokeCommand<Environment>(COMMANDS.saveEnvironment, {
+      input: environment,
+    }),
 
   deleteEnvironment: async (environmentId: string, _deleteProfile = false) => {
-    await invokeCommand<void>(COMMANDS.deleteEnvironment, { id: environmentId });
+    await invokeCommand<void>(COMMANDS.deleteEnvironment, {
+      id: environmentId,
+    });
     return { deleted: true };
   },
 
   duplicateEnvironment: (environmentId: string) =>
-    invokeCommand<Environment>(COMMANDS.duplicateEnvironment, { id: environmentId }),
+    invokeCommand<Environment>(COMMANDS.duplicateEnvironment, {
+      id: environmentId,
+    }),
 
   startEnvironment: async (environmentId: string) => {
     const status = await invokeCommand<
@@ -565,10 +605,14 @@ export const browserApi = {
     invokeCommand<void>(COMMANDS.validateEnvironment, { input: environment }),
 
   testEnvironmentProxy: (environmentId: string) =>
-    invokeCommand<ProxyTestResult>(COMMANDS.testEnvironmentProxy, { id: environmentId }),
+    invokeCommand<ProxyTestResult>(COMMANDS.testEnvironmentProxy, {
+      id: environmentId,
+    }),
 
   openEnvironmentProfileDir: (environmentId: string) =>
-    invokeCommand<void>(COMMANDS.openEnvironmentProfileDir, { id: environmentId }),
+    invokeCommand<void>(COMMANDS.openEnvironmentProfileDir, {
+      id: environmentId,
+    }),
 
   getEnvironmentStatuses: async () => {
     const statuses = await invokeCommand<
@@ -588,13 +632,11 @@ export const browserApi = {
   },
 
   validateTaskScript: (script: string) =>
-    invokeCommand<TaskValidationResult>(COMMANDS.validateTaskScript, { script }),
+    invokeCommand<TaskValidationResult>(COMMANDS.validateTaskScript, {
+      script,
+    }),
 
-  runTask: (
-    taskId: string,
-    environmentIds: string[],
-    options: RunOptions,
-  ) =>
+  runTask: (taskId: string, environmentIds: string[], options: RunOptions) =>
     invokeCommand<RunBatch>(COMMANDS.runTask, {
       input: {
         task_id: taskId,
@@ -623,8 +665,19 @@ export const browserApi = {
   listRunArtifacts: (runId: string) =>
     invokeCommand<RunArtifact[]>(COMMANDS.listRunArtifacts, { runId }),
 
+  readRunArtifact: (path: string, maxChars?: number) =>
+    invokeCommand<RunArtifactContent>(COMMANDS.readRunArtifact, {
+      path,
+      maxChars,
+    }),
+
   deleteRun: async (runId: string) => {
     await invokeCommand<void>(COMMANDS.deleteRun, { runId });
+    return { deleted: true };
+  },
+
+  deleteRuns: async (runIds: string[]) => {
+    await invokeCommand<void>(COMMANDS.deleteRuns, { runIds });
     return { deleted: true };
   },
 
@@ -647,8 +700,7 @@ export const browserApi = {
 
   openDataDir: () => invokeCommand<void>(COMMANDS.openDataDir),
 
-  getDiagnostics: () =>
-    invokeCommand<Diagnostics>(COMMANDS.getDiagnostics),
+  getDiagnostics: () => invokeCommand<Diagnostics>(COMMANDS.getDiagnostics),
 
   cleanupStaleSessions: () =>
     invokeCommand<CleanupResult>(COMMANDS.cleanupStaleSessions),

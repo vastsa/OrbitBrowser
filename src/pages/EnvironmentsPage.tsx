@@ -29,7 +29,7 @@ import {
   TextField,
 } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
-import { SkeletonRows } from "@/components/PageScaffold";
+import { SkeletonRows, TablePagination } from "@/components/PageScaffold";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useI18n } from "@/i18n";
 import { browserApi } from "@/lib/tauri";
@@ -311,7 +311,10 @@ function readText(row: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
-function readNumber(row: Record<string, unknown>, keys: string[]): number | undefined {
+function readNumber(
+  row: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
   const value = readText(row, keys);
   if (!value) {
     return undefined;
@@ -344,8 +347,12 @@ function importRowsToDrafts(
               kind: proxyKind,
               host: proxyHost || undefined,
               port: proxyPort,
-              username: readText(row, ["proxy_username", "username", "代理账号"]) || undefined,
-              password: readText(row, ["proxy_password", "password", "代理密码"]) || undefined,
+              username:
+                readText(row, ["proxy_username", "username", "代理账号"]) ||
+                undefined,
+              password:
+                readText(row, ["proxy_password", "password", "代理密码"]) ||
+                undefined,
               bypass_list: defaultProxyBypassList,
             }
           : { kind: "none", bypass_list: defaultProxyBypassList };
@@ -355,14 +362,20 @@ function importRowsToDrafts(
         id: readText(row, ["id"]) || undefined,
         name,
         group_id: readText(row, ["group", "group_id", "分组"]) || undefined,
-        tags: importedTags.length > 0 ? importedTags : base.tags ?? [],
+        tags: importedTags.length > 0 ? importedTags : (base.tags ?? []),
         notes: readText(row, ["notes", "备注"]) || undefined,
         browser_kind:
-          (readText(row, ["browser", "browser_kind", "浏览器"]) as BrowserKind) ||
-          base.browser_kind,
+          (readText(row, [
+            "browser",
+            "browser_kind",
+            "浏览器",
+          ]) as BrowserKind) || base.browser_kind,
         chrome_path_override:
-          readText(row, ["chrome_path", "chrome_path_override", "chrome路径"]) ||
-          undefined,
+          readText(row, [
+            "chrome_path",
+            "chrome_path_override",
+            "chrome路径",
+          ]) || undefined,
         proxy_config: proxyConfig,
         locale: readText(row, ["locale", "语言"]) || base.locale,
         timezone_id:
@@ -375,8 +388,7 @@ function importRowsToDrafts(
           readNumber(row, ["viewport_height", "height", "窗口高度"]) ||
           base.viewport_height,
         start_url:
-          readText(row, ["start_url", "url", "启动地址"]) ||
-          base.start_url,
+          readText(row, ["start_url", "url", "启动地址"]) || base.start_url,
         headless: parseBoolean(row.headless, base.headless),
       });
     })
@@ -385,17 +397,24 @@ function importRowsToDrafts(
   return { drafts, errors };
 }
 
-function recentSuccessRate(environment: Environment, runs: TaskRun[]): number | null {
+function recentSuccessRate(
+  environment: Environment,
+  runs: TaskRun[],
+): number | null {
   const recent = runs
     .filter((run) => run.environment_id === environment.id)
     .filter((run) =>
-      ["succeeded", "failed", "timed_out", "interrupted", "cancelled"].includes(run.status),
+      ["succeeded", "failed", "timed_out", "interrupted", "cancelled"].includes(
+        run.status,
+      ),
     )
     .slice(0, 10);
   if (recent.length === 0) {
     return null;
   }
-  return recent.filter((run) => run.status === "succeeded").length / recent.length;
+  return (
+    recent.filter((run) => run.status === "succeeded").length / recent.length
+  );
 }
 
 export function EnvironmentsPage() {
@@ -411,6 +430,8 @@ export function EnvironmentsPage() {
     tags: "",
     mode: "append",
   });
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -557,7 +578,9 @@ export function EnvironmentsPage() {
   });
 
   const bulkOperationMutation = useMutation({
-    mutationFn: async (operation: "start" | "stop" | "duplicate" | "delete" | "testProxy") => {
+    mutationFn: async (
+      operation: "start" | "stop" | "duplicate" | "delete" | "testProxy",
+    ) => {
       const selected = environments.filter((environment) =>
         selectedIds.includes(environment.id),
       );
@@ -572,7 +595,9 @@ export function EnvironmentsPage() {
           await browserApi.deleteEnvironment(environment.id, false);
         } else if (operation === "testProxy") {
           try {
-            const result = await browserApi.testEnvironmentProxy(environment.id);
+            const result = await browserApi.testEnvironmentProxy(
+              environment.id,
+            );
             setProxyResults((current) => ({
               ...current,
               [environment.id]: proxyResultText(result),
@@ -638,7 +663,8 @@ export function EnvironmentsPage() {
 
   const filtered = environments.filter((environment) => {
     const environmentTags = normalizeTags(environment);
-    const keyword = `${environment.name} ${environment.group_id ?? ""} ${environmentTags.join(" ")}`.toLowerCase();
+    const keyword =
+      `${environment.name} ${environment.group_id ?? ""} ${environmentTags.join(" ")}`.toLowerCase();
 
     return (
       (!search || keyword.includes(search.toLowerCase())) &&
@@ -646,13 +672,32 @@ export function EnvironmentsPage() {
       (!tag || environmentTags.includes(tag))
     );
   });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * pageSize;
+  const pagedEnvironments = filtered.slice(pageStart, pageStart + pageSize);
   const filteredIds = filtered.map((environment) => environment.id);
+  const pagedIds = pagedEnvironments.map((environment) => environment.id);
   const selectedEnvironments = environments.filter((environment) =>
     selectedIds.includes(environment.id),
   );
   const selectedCount = selectedEnvironments.length;
   const allFilteredSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+    filteredIds.length > 0 &&
+    filteredIds.every((id) => selectedIds.includes(id));
+  const allPageSelected =
+    pagedIds.length > 0 && pagedIds.every((id) => selectedIds.includes(id));
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [group, pageSize, search, tag]);
+
+  useEffect(() => {
+    if (pageIndex >= totalPages) {
+      setPageIndex(totalPages - 1);
+    }
+  }, [pageIndex, totalPages]);
+
   const importPreview = useMemo<ImportPreview>(() => {
     try {
       return importRowsToDrafts(
@@ -668,61 +713,69 @@ export function EnvironmentsPage() {
         errors: [error instanceof Error ? error.message : String(error)],
       };
     }
-  }, [environments.length, importText, settingsQuery.data, text.defaultName, text.defaultTag]);
+  }, [
+    environments.length,
+    importText,
+    settingsQuery.data,
+    text.defaultName,
+    text.defaultTag,
+  ]);
   const healthByEnvironment = useMemo(() => {
     const runs = runsQuery.data ?? [];
-    return environments.reduce<Record<string, { ok: boolean; message: string }>>(
-      (acc, environment) => {
-        const runtime = readRuntimeStatus(statusesQuery.data, environment.id);
-        const proxy = normalizeProxy(environment);
-        const proxyResult = proxyResults[environment.id];
-        const successRate = recentSuccessRate(environment, runs);
-        const issues: string[] = [];
-        if (!settingsQuery.data?.chrome_path && !environment.chrome_path_override) {
-          issues.push(text.health.chromeMissing);
-        }
-        if (runtime.status === "crashed") {
-          issues.push(text.health.crashed);
-        }
-        if (proxy.kind !== "none" && !proxyResult) {
-          issues.push(text.health.proxyUntested);
-        }
-        if (
-          proxy.kind !== "none" &&
-          proxyResult &&
-          !proxyResult.includes(text.proxyReachable)
-        ) {
-          issues.push(text.health.proxyFailed);
-        }
-        if (successRate !== null && successRate < 0.6) {
-          issues.push(text.health.lowSuccessRate);
-        }
-        if ((diagnosticsQuery.data?.recovery?.stale_lock_count ?? 0) > 0) {
-          issues.push(text.health.profileLock);
-        }
-        const dataBytes =
-          (diagnosticsQuery.data?.data?.profiles_total_size ?? 0) +
-          (diagnosticsQuery.data?.data?.runs_total_size ?? 0);
-        if (dataBytes > 5 * 1024 * 1024 * 1024) {
-          issues.push(
-            format(text.health.diskUsage, { size: formatBytes(dataBytes) }),
-          );
-        }
-        acc[environment.id] = {
-          ok: issues.length === 0,
-          message:
-            issues.length > 0
-              ? issues.join(" / ")
-              : successRate === null
-                ? text.health.ready
-                : format(text.health.successRate, {
-                    rate: Math.round(successRate * 100),
-                  }),
-        };
-        return acc;
-      },
-      {},
-    );
+    return environments.reduce<
+      Record<string, { ok: boolean; message: string }>
+    >((acc, environment) => {
+      const runtime = readRuntimeStatus(statusesQuery.data, environment.id);
+      const proxy = normalizeProxy(environment);
+      const proxyResult = proxyResults[environment.id];
+      const successRate = recentSuccessRate(environment, runs);
+      const issues: string[] = [];
+      if (
+        !settingsQuery.data?.chrome_path &&
+        !environment.chrome_path_override
+      ) {
+        issues.push(text.health.chromeMissing);
+      }
+      if (runtime.status === "crashed") {
+        issues.push(text.health.crashed);
+      }
+      if (proxy.kind !== "none" && !proxyResult) {
+        issues.push(text.health.proxyUntested);
+      }
+      if (
+        proxy.kind !== "none" &&
+        proxyResult &&
+        !proxyResult.includes(text.proxyReachable)
+      ) {
+        issues.push(text.health.proxyFailed);
+      }
+      if (successRate !== null && successRate < 0.6) {
+        issues.push(text.health.lowSuccessRate);
+      }
+      if ((diagnosticsQuery.data?.recovery?.stale_lock_count ?? 0) > 0) {
+        issues.push(text.health.profileLock);
+      }
+      const dataBytes =
+        (diagnosticsQuery.data?.data?.profiles_total_size ?? 0) +
+        (diagnosticsQuery.data?.data?.runs_total_size ?? 0);
+      if (dataBytes > 5 * 1024 * 1024 * 1024) {
+        issues.push(
+          format(text.health.diskUsage, { size: formatBytes(dataBytes) }),
+        );
+      }
+      acc[environment.id] = {
+        ok: issues.length === 0,
+        message:
+          issues.length > 0
+            ? issues.join(" / ")
+            : successRate === null
+              ? text.health.ready
+              : format(text.health.successRate, {
+                  rate: Math.round(successRate * 100),
+                }),
+      };
+      return acc;
+    }, {});
   }, [
     environments,
     diagnosticsQuery.data,
@@ -760,7 +813,8 @@ export function EnvironmentsPage() {
     openProfileMutation.error;
   const runningCount = environments.filter(
     (environment) =>
-      readRuntimeStatus(statusesQuery.data, environment.id).status === "running",
+      readRuntimeStatus(statusesQuery.data, environment.id).status ===
+      "running",
   ).length;
   const proxiedCount = environments.filter(
     (environment) => normalizeProxy(environment).kind !== "none",
@@ -818,7 +872,7 @@ export function EnvironmentsPage() {
   ]);
 
   return (
-    <div className="viewport-page grid-rows-[auto_auto_minmax(0,1fr)]">
+    <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
       <section className="panel shrink-0 p-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
@@ -873,7 +927,9 @@ export function EnvironmentsPage() {
             }
             size="sm"
           >
-            {allFilteredSelected ? text.bulk.clearFiltered : text.bulk.selectFiltered}
+            {allFilteredSelected
+              ? text.bulk.clearFiltered
+              : text.bulk.selectFiltered}
           </Button>
           <span className="text-xs font-medium text-ink-500">
             {format(text.bulk.selected, { count: selectedCount })}
@@ -937,238 +993,281 @@ export function EnvironmentsPage() {
         </div>
       </section>
 
-      {operationError ? (
-        <div className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
-          {errorMessage(operationError)}
-        </div>
-      ) : null}
+      <div
+        className={`grid min-h-0 min-w-0 gap-3 ${
+          operationError
+            ? "grid-rows-[auto_minmax(0,1fr)]"
+            : "grid-rows-[minmax(0,1fr)]"
+        }`}
+      >
+        {operationError ? (
+          <div
+            className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+            role="alert"
+          >
+            {errorMessage(operationError)}
+          </div>
+        ) : null}
 
-      {environmentsQuery.isLoading ? (
-        <section className="panel scroll-panel">
-          <SkeletonRows rows={6} />
-        </section>
-      ) : environmentsQuery.isError ? (
-        <EmptyState
-          description={errorMessage(environmentsQuery.error)}
-          icon={<SquareStack className="h-5 w-5" />}
-          title={text.loadFailed}
-        />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          action={
-            <Button onClick={() => setEditing(createNewDraft())} variant="primary">
-              {text.newEnvironment}
-            </Button>
-          }
-          description={text.emptyDescription}
-          icon={<SquareStack className="h-5 w-5" />}
-          title={text.emptyTitle}
-        />
-      ) : (
-        <section className="panel table-scroll environment-table-scroll min-h-0 min-w-0">
-          <table className="environment-table border-collapse">
-            <thead className="table-header">
-              <tr>
-                <th className="px-4 py-3">
-                  <input
-                    checked={allFilteredSelected}
-                    onChange={() =>
-                      setSelectedIds((current) =>
-                        allFilteredSelected
-                          ? current.filter((id) => !filteredIds.includes(id))
-                          : Array.from(new Set([...current, ...filteredIds])),
-                      )
-                    }
-                    type="checkbox"
-                  />
-                </th>
-                <th className="px-4 py-3">{text.table.name}</th>
-                <th className="px-4 py-3">{text.table.group}</th>
-                <th className="px-4 py-3">{text.table.proxy}</th>
-                <th className="px-4 py-3">{text.table.locale}</th>
-                <th className="px-4 py-3">{text.table.timezone}</th>
-                <th className="px-4 py-3">{text.table.viewport}</th>
-                <th className="px-4 py-3">{text.table.health}</th>
-                <th className="px-4 py-3">{copy.common.status}</th>
-                <th className="px-4 py-3">{text.table.updated}</th>
-                <th className="table-action-header">{copy.common.actions}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((environment) => {
-                const proxy = normalizeProxy(environment);
-                const runtime = readRuntimeStatus(
-                  statusesQuery.data,
-                  environment.id,
-                );
-                const health = healthByEnvironment[environment.id];
-                return (
-                  <tr key={environment.id} className="table-row-hover">
-                    <td className="table-cell">
+        {environmentsQuery.isLoading ? (
+          <section className="panel min-h-0 overflow-hidden">
+            <SkeletonRows rows={6} />
+          </section>
+        ) : environmentsQuery.isError ? (
+          <EmptyState
+            description={errorMessage(environmentsQuery.error)}
+            icon={<SquareStack className="h-5 w-5" />}
+            title={text.loadFailed}
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            action={
+              <Button
+                onClick={() => setEditing(createNewDraft())}
+                variant="primary"
+              >
+                {text.newEnvironment}
+              </Button>
+            }
+            description={text.emptyDescription}
+            icon={<SquareStack className="h-5 w-5" />}
+            title={text.emptyTitle}
+          />
+        ) : (
+          <section className="panel table-panel">
+            <div className="table-scroll environment-table-scroll">
+              <table className="environment-table border-collapse">
+                <thead className="table-header">
+                  <tr>
+                    <th className="px-4 py-3">
                       <input
-                        checked={selectedIds.includes(environment.id)}
-                        onChange={(event) =>
+                        checked={allPageSelected}
+                        onChange={() =>
                           setSelectedIds((current) =>
-                            event.target.checked
-                              ? [...current, environment.id]
-                              : current.filter((id) => id !== environment.id),
+                            allPageSelected
+                              ? current.filter((id) => !pagedIds.includes(id))
+                              : Array.from(new Set([...current, ...pagedIds])),
                           )
                         }
                         type="checkbox"
                       />
-                    </td>
-                    <td className="table-cell">
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
-                          <Globe2 className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-ink-900">
-                            {environment.name}
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {normalizeTags(environment).length > 0 ? (
-                              normalizeTags(environment).map((item) => (
-                                <span
-                                  className="rounded bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500"
-                                  key={item}
-                                >
-                                  {item}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs text-ink-500">{text.noTags}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {environment.group_id || "-"}
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      <div className="max-w-56">
-                        <div className="truncate">
-                          {proxy.kind === "none"
-                            ? text.noProxy
-                            : `${proxy.kind}://${proxy.host ?? "-"}:${proxy.port ?? "-"}`}
-                        </div>
-                        {proxyResults[environment.id] ? (
-                          <div className="mt-1 truncate text-xs text-ink-500">
-                            {proxyResults[environment.id]}
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {environment.locale}
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {environment.timezone_id}
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      <span className="mono-tabular">
-                        {environment.viewport_width}x{environment.viewport_height}
-                      </span>
-                      <span className="ml-1 text-xs text-ink-500">
-                        @{environment.device_scale_factor}
-                      </span>
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      <div
-                        className={`max-w-44 truncate rounded-md px-2 py-1 text-xs font-medium ${
-                          health?.ok
-                            ? "bg-green-50 text-ok"
-                            : "bg-amber-50 text-warn"
-                        }`}
-                        title={health?.message}
-                      >
-                        {health?.message ?? text.health.ready}
-                      </div>
-                    </td>
-                    <td className="table-cell">
-                      <StatusBadge status={runtime.status} />
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {formatDateTime(environment.updated_at, language)}
-                    </td>
-                    <td className="table-action-cell">
-                      <div className="flex w-[196px] flex-wrap justify-end gap-1">
-                        {runtime.status === "running" ? (
-                          <Button
-                            aria-label={text.actions.stop}
-                            className="h-7 px-1.5"
-                            disabled={busy}
-                            icon={<Power className="h-4 w-4" />}
-                            onClick={() => stopMutation.mutate(environment.id)}
-                            variant="ghost"
-                          />
-                        ) : (
-                          <Button
-                            aria-label={text.actions.start}
-                            className="h-7 px-1.5"
-                            disabled={busy}
-                            icon={<Play className="h-4 w-4" />}
-                            onClick={() => startMutation.mutate(environment.id)}
-                            variant="ghost"
-                          />
-                        )}
-                        <Button
-                          aria-label={text.actions.restart}
-                          className="h-7 px-1.5"
-                          disabled={busy}
-                          icon={<RefreshCw className="h-4 w-4" />}
-                          onClick={() => restartMutation.mutate(environment.id)}
-                          variant="ghost"
-                        />
-                        <Button
-                          aria-label={text.actions.testProxy}
-                          className="h-7 px-1.5"
-                          disabled={testProxyMutation.isPending}
-                          icon={<Wifi className="h-4 w-4" />}
-                          onClick={() => testProxyMutation.mutate(environment.id)}
-                          variant="ghost"
-                        />
-                        <Button
-                          aria-label={text.actions.openProfile}
-                          className="h-7 px-1.5"
-                          disabled={openProfileMutation.isPending}
-                          icon={<FolderOpen className="h-4 w-4" />}
-                          onClick={() => openProfileMutation.mutate(environment.id)}
-                          variant="ghost"
-                        />
-                        <Button
-                          aria-label={copy.common.edit}
-                          className="h-7 px-1.5"
-                          icon={<Edit2 className="h-4 w-4" />}
-                          onClick={() => setEditing(toDraft(environment))}
-                          variant="ghost"
-                        />
-                        <Button
-                          aria-label={text.actions.duplicate}
-                          className="h-7 px-1.5"
-                          disabled={busy}
-                          icon={<Copy className="h-4 w-4" />}
-                          onClick={() => duplicateMutation.mutate(environment.id)}
-                          variant="ghost"
-                        />
-                        <Button
-                          aria-label={copy.common.delete}
-                          className="h-7 px-1.5"
-                          disabled={busy}
-                          icon={<Trash2 className="h-4 w-4" />}
-                          onClick={() => setDeleteTarget(environment)}
-                          variant="ghost"
-                        />
-                      </div>
-                    </td>
+                    </th>
+                    <th className="px-4 py-3">{text.table.name}</th>
+                    <th className="px-4 py-3">{text.table.group}</th>
+                    <th className="px-4 py-3">{text.table.proxy}</th>
+                    <th className="px-4 py-3">{text.table.locale}</th>
+                    <th className="px-4 py-3">{text.table.timezone}</th>
+                    <th className="px-4 py-3">{text.table.viewport}</th>
+                    <th className="px-4 py-3">{text.table.health}</th>
+                    <th className="px-4 py-3">{copy.common.status}</th>
+                    <th className="px-4 py-3">{text.table.updated}</th>
+                    <th className="table-action-header">
+                      {copy.common.actions}
+                    </th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
+                </thead>
+                <tbody>
+                  {pagedEnvironments.map((environment) => {
+                    const proxy = normalizeProxy(environment);
+                    const runtime = readRuntimeStatus(
+                      statusesQuery.data,
+                      environment.id,
+                    );
+                    const health = healthByEnvironment[environment.id];
+                    return (
+                      <tr key={environment.id} className="table-row-hover">
+                        <td className="table-cell">
+                          <input
+                            checked={selectedIds.includes(environment.id)}
+                            onChange={(event) =>
+                              setSelectedIds((current) =>
+                                event.target.checked
+                                  ? [...current, environment.id]
+                                  : current.filter(
+                                      (id) => id !== environment.id,
+                                    ),
+                              )
+                            }
+                            type="checkbox"
+                          />
+                        </td>
+                        <td className="table-cell">
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                              <Globe2 className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-ink-900">
+                                {environment.name}
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {normalizeTags(environment).length > 0 ? (
+                                  normalizeTags(environment).map((item) => (
+                                    <span
+                                      className="rounded bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500"
+                                      key={item}
+                                    >
+                                      {item}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-ink-500">
+                                    {text.noTags}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {environment.group_id || "-"}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          <div className="max-w-56">
+                            <div className="truncate">
+                              {proxy.kind === "none"
+                                ? text.noProxy
+                                : `${proxy.kind}://${proxy.host ?? "-"}:${proxy.port ?? "-"}`}
+                            </div>
+                            {proxyResults[environment.id] ? (
+                              <div className="mt-1 truncate text-xs text-ink-500">
+                                {proxyResults[environment.id]}
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {environment.locale}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {environment.timezone_id}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          <span className="mono-tabular">
+                            {environment.viewport_width}x
+                            {environment.viewport_height}
+                          </span>
+                          <span className="ml-1 text-xs text-ink-500">
+                            @{environment.device_scale_factor}
+                          </span>
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          <div
+                            className={`max-w-44 truncate rounded-md px-2 py-1 text-xs font-medium ${
+                              health?.ok
+                                ? "bg-green-50 text-ok"
+                                : "bg-amber-50 text-warn"
+                            }`}
+                            title={health?.message}
+                          >
+                            {health?.message ?? text.health.ready}
+                          </div>
+                        </td>
+                        <td className="table-cell">
+                          <StatusBadge status={runtime.status} />
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {formatDateTime(environment.updated_at, language)}
+                        </td>
+                        <td className="table-action-cell">
+                          <div className="flex w-[196px] flex-wrap justify-end gap-1">
+                            {runtime.status === "running" ? (
+                              <Button
+                                aria-label={text.actions.stop}
+                                className="h-7 px-1.5"
+                                disabled={busy}
+                                icon={<Power className="h-4 w-4" />}
+                                onClick={() =>
+                                  stopMutation.mutate(environment.id)
+                                }
+                                variant="ghost"
+                              />
+                            ) : (
+                              <Button
+                                aria-label={text.actions.start}
+                                className="h-7 px-1.5"
+                                disabled={busy}
+                                icon={<Play className="h-4 w-4" />}
+                                onClick={() =>
+                                  startMutation.mutate(environment.id)
+                                }
+                                variant="ghost"
+                              />
+                            )}
+                            <Button
+                              aria-label={text.actions.restart}
+                              className="h-7 px-1.5"
+                              disabled={busy}
+                              icon={<RefreshCw className="h-4 w-4" />}
+                              onClick={() =>
+                                restartMutation.mutate(environment.id)
+                              }
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={text.actions.testProxy}
+                              className="h-7 px-1.5"
+                              disabled={testProxyMutation.isPending}
+                              icon={<Wifi className="h-4 w-4" />}
+                              onClick={() =>
+                                testProxyMutation.mutate(environment.id)
+                              }
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={text.actions.openProfile}
+                              className="h-7 px-1.5"
+                              disabled={openProfileMutation.isPending}
+                              icon={<FolderOpen className="h-4 w-4" />}
+                              onClick={() =>
+                                openProfileMutation.mutate(environment.id)
+                              }
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={copy.common.edit}
+                              className="h-7 px-1.5"
+                              icon={<Edit2 className="h-4 w-4" />}
+                              onClick={() => setEditing(toDraft(environment))}
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={text.actions.duplicate}
+                              className="h-7 px-1.5"
+                              disabled={busy}
+                              icon={<Copy className="h-4 w-4" />}
+                              onClick={() =>
+                                duplicateMutation.mutate(environment.id)
+                              }
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={copy.common.delete}
+                              className="h-7 px-1.5"
+                              disabled={busy}
+                              icon={<Trash2 className="h-4 w-4" />}
+                              onClick={() => setDeleteTarget(environment)}
+                              variant="ghost"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              labels={copy.common.pagination}
+              onPageIndexChange={setPageIndex}
+              onPageSizeChange={setPageSize}
+              pageIndex={safePageIndex}
+              pageSize={pageSize}
+              totalCount={filtered.length}
+            />
+          </section>
+        )}
+      </div>
 
       <EnvironmentModal
         error={
@@ -1185,7 +1284,9 @@ export function EnvironmentsPage() {
       <Modal
         footer={
           <>
-            <Button onClick={() => setImportOpen(false)}>{copy.common.cancel}</Button>
+            <Button onClick={() => setImportOpen(false)}>
+              {copy.common.cancel}
+            </Button>
             <Button
               disabled={
                 bulkImportMutation.isPending ||
@@ -1218,13 +1319,15 @@ export function EnvironmentsPage() {
           />
           <div className="grid gap-2 rounded-lg border border-line bg-ink-50 p-3 text-sm">
             <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-ink-900">{text.bulk.importPreview}</span>
+              <span className="font-medium text-ink-900">
+                {text.bulk.importPreview}
+              </span>
               <span className="mono-tabular text-ink-500">
                 {importPreview.drafts.length}
               </span>
             </div>
             {importPreview.errors.length > 0 ? (
-              <div className="grid gap-1 text-danger">
+              <div className="grid gap-1 text-danger" role="alert">
                 {importPreview.errors.map((error) => (
                   <div key={error}>{error}</div>
                 ))}
@@ -1249,7 +1352,9 @@ export function EnvironmentsPage() {
       <Modal
         footer={
           <>
-            <Button onClick={() => setBulkEditOpen(false)}>{copy.common.cancel}</Button>
+            <Button onClick={() => setBulkEditOpen(false)}>
+              {copy.common.cancel}
+            </Button>
             <Button
               disabled={bulkEditMutation.isPending || selectedCount === 0}
               onClick={() => bulkEditMutation.mutate(bulkEditDraft)}
@@ -1306,7 +1411,9 @@ export function EnvironmentsPage() {
       <Modal
         footer={
           <>
-            <Button onClick={() => setBulkDeleteOpen(false)}>{copy.common.cancel}</Button>
+            <Button onClick={() => setBulkDeleteOpen(false)}>
+              {copy.common.cancel}
+            </Button>
             <Button
               disabled={bulkOperationMutation.isPending || selectedCount === 0}
               onClick={() => bulkOperationMutation.mutate("delete")}
@@ -1328,7 +1435,9 @@ export function EnvironmentsPage() {
       <Modal
         footer={
           <>
-            <Button onClick={() => setDeleteTarget(null)}>{copy.common.cancel}</Button>
+            <Button onClick={() => setDeleteTarget(null)}>
+              {copy.common.cancel}
+            </Button>
             <Button
               disabled={deleteMutation.isPending}
               onClick={() => {
@@ -1349,9 +1458,7 @@ export function EnvironmentsPage() {
         widthClass="max-w-md"
         onClose={() => setDeleteTarget(null)}
       >
-        <p className="text-sm leading-6 text-ink-700">
-          {text.deleteBody}
-        </p>
+        <p className="text-sm leading-6 text-ink-700">{text.deleteBody}</p>
         <p className="mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.name}
         </p>
@@ -1377,7 +1484,9 @@ function EnvironmentModal({
 }: EnvironmentModalProps) {
   const { copy } = useI18n();
   const text = copy.environments;
-  const [draft, setDraft] = useState<EnvironmentDraft>(environment ?? toDraft());
+  const [draft, setDraft] = useState<EnvironmentDraft>(
+    environment ?? toDraft(),
+  );
 
   useEffect(() => {
     if (environment) {
@@ -1431,13 +1540,18 @@ function EnvironmentModal({
     >
       <div className="grid gap-5">
         {error ? (
-          <div className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+          <div
+            className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+            role="alert"
+          >
             {errorMessage(error)}
           </div>
         ) : null}
 
         <section className="grid gap-3">
-          <h3 className="text-sm font-semibold text-ink-900">{text.sections.basics}</h3>
+          <h3 className="text-sm font-semibold text-ink-900">
+            {text.sections.basics}
+          </h3>
           <div className="grid gap-3 md:grid-cols-2">
             <TextField
               hint={text.fields.nameHint}
@@ -1475,7 +1589,9 @@ function EnvironmentModal({
         </section>
 
         <section className="grid gap-3">
-          <h3 className="text-sm font-semibold text-ink-900">{text.sections.browser}</h3>
+          <h3 className="text-sm font-semibold text-ink-900">
+            {text.sections.browser}
+          </h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SelectField
               label={copy.common.browser}
@@ -1530,7 +1646,9 @@ function EnvironmentModal({
         </section>
 
         <section className="grid gap-3">
-          <h3 className="text-sm font-semibold text-ink-900">{text.sections.proxy}</h3>
+          <h3 className="text-sm font-semibold text-ink-900">
+            {text.sections.proxy}
+          </h3>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SelectField
               label={text.fields.proxyType}
@@ -1588,7 +1706,9 @@ function EnvironmentModal({
         </section>
 
         <section className="grid gap-3">
-          <h3 className="text-sm font-semibold text-ink-900">{text.sections.runtime}</h3>
+          <h3 className="text-sm font-semibold text-ink-900">
+            {text.sections.runtime}
+          </h3>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TextField
               hint={text.fields.localeHint}
@@ -1608,7 +1728,10 @@ function EnvironmentModal({
               max={90}
               min={-90}
               onChange={(event) =>
-                update("geolocation_latitude", parseOptionalNumber(event.target.value))
+                update(
+                  "geolocation_latitude",
+                  parseOptionalNumber(event.target.value),
+                )
               }
               step="any"
               type="number"
@@ -1620,7 +1743,10 @@ function EnvironmentModal({
               max={180}
               min={-180}
               onChange={(event) =>
-                update("geolocation_longitude", parseOptionalNumber(event.target.value))
+                update(
+                  "geolocation_longitude",
+                  parseOptionalNumber(event.target.value),
+                )
               }
               step="any"
               type="number"

@@ -42,6 +42,13 @@ export const copy = {
       status: "状态",
       task: "任务",
       timezone: "时区",
+      pagination: {
+        range: "第 {{start}}-{{end}} 条，共 {{total}} 条",
+        pageSize: "每页",
+        page: "第 {{current}} / {{total}} 页",
+        previous: "上一页",
+        next: "下一页",
+      },
     },
     layout: {
       nav: {
@@ -112,7 +119,8 @@ export const copy = {
       newEnvironment: "新建环境",
       loadFailed: "环境列表加载失败",
       emptyTitle: "暂无匹配环境",
-      emptyDescription: "创建环境后，可以为不同站点、账号或地区维护独立 Profile。",
+      emptyDescription:
+        "创建环境后，可以为不同站点、账号或地区维护独立 Profile。",
       table: {
         name: "名称",
         group: "分组",
@@ -134,7 +142,8 @@ export const copy = {
         duplicate: "复制",
       },
       deleteTitle: "删除环境",
-      deleteBody: "删除会停止该环境，并移除关联运行记录、日志、产物和 Profile 目录。",
+      deleteBody:
+        "删除会停止该环境，并移除关联运行记录、日志、产物和 Profile 目录。",
       proxyReachable: "代理连通",
       proxyNotConfigured: "未配置代理",
       proxyHttpStatus: "HTTP {{status}}",
@@ -151,7 +160,8 @@ export const copy = {
       },
       bulk: {
         import: "批量导入",
-        importHint: "支持 JSON 数组或 CSV。CSV 表头可包含 name、group、tags、proxy_kind、proxy_host、proxy_port、locale、timezone、start_url。",
+        importHint:
+          "支持 JSON 数组或 CSV。CSV 表头可包含 name、group、tags、proxy_kind、proxy_host、proxy_port、locale、timezone、start_url。",
         importInput: "导入内容",
         importPreview: "导入预览",
         importConfirm: "导入 {{count}} 个环境",
@@ -169,7 +179,8 @@ export const copy = {
         tagMode: "标签模式",
         appendTags: "追加标签",
         replaceTags: "替换标签",
-        deleteBody: "将删除 {{count}} 个环境，并移除相关运行记录、日志、产物和 Profile 目录。",
+        deleteBody:
+          "将删除 {{count}} 个环境，并移除相关运行记录、日志、产物和 Profile 目录。",
       },
       saveEnvironment: "保存环境",
       editTitle: "编辑环境",
@@ -204,7 +215,8 @@ export const copy = {
         username: "账号",
         password: "密码",
         bypassList: "绕过列表",
-        timezoneHint: "填 auto 时启动时按 IP 自动识别；手动填写 Asia/Tokyo 时优先使用手动值。",
+        timezoneHint:
+          "填 auto 时启动时按 IP 自动识别；手动填写 Asia/Tokyo 时优先使用手动值。",
         latitude: "纬度",
         latitudeHint: "留空不启用虚拟定位；范围 -90 到 90。",
         longitude: "经度",
@@ -213,11 +225,13 @@ export const copy = {
         viewportHeight: "窗口高度",
         scaleFactor: "缩放因子",
         platform: "Platform",
-        platformHint: "留空或填 auto 时不覆盖；仅在手动填写 User-Agent 时建议同步填写。",
+        platformHint:
+          "留空或填 auto 时不覆盖；仅在手动填写 User-Agent 时建议同步填写。",
         seed: "随机种子",
         seedHint: "预留字段；当前不参与 UA 生成。",
         userAgent: "User-Agent",
-        userAgentHint: "留空或填 auto 时使用 Chrome 原生 UA；只有手动填写时才覆盖。",
+        userAgentHint:
+          "留空或填 auto 时使用 Chrome 原生 UA；只有手动填写时才覆盖。",
       },
     },
     tasks: {
@@ -313,7 +327,29 @@ export const copy = {
       emptyDetailDescription: "选择左侧记录后，会显示日志、产物和重试操作。",
       deleteTitle: "删除运行记录",
       deleteButton: "删除记录",
-      deleteBody: "删除后，该运行记录、日志和本地产物会一起移除。未结束的记录需要先取消。",
+      deleteBody:
+        "删除后，该运行记录、日志和本地产物会一起移除。未结束的记录需要先取消。",
+      bulk: {
+        selected: "已选 {{count}} 条记录",
+        selectPage: "选择当前页",
+        selectRun: "选择运行记录",
+        clear: "清空选择",
+        cancel: "取消 {{count}}",
+        retry: "重试 {{count}}",
+        delete: "删除 {{count}}",
+        deleteTitle: "批量删除运行记录",
+        confirmDelete: "删除 {{count}} 条",
+        deleteBody:
+          "将删除 {{count}} 条已结束运行记录，并移除对应日志和本地产物。",
+        activeSkipped: "已跳过 {{count}} 条未结束记录，请先取消后再删除。",
+      },
+      pagination: {
+        range: "第 {{start}}-{{end}} 条，共 {{total}} 条",
+        pageSize: "每页",
+        page: "第 {{current}} / {{total}} 页",
+        previous: "上一页",
+        next: "下一页",
+      },
     },
     settings: {
       general: "基础设置",
@@ -343,7 +379,8 @@ export const copy = {
       currentDirectory: "当前目录",
       openDirectory: "打开目录",
       maintenance: "运行维护",
-      maintenanceHint: "清理运行时产生的临时扩展、缓存等文件，也可以进入诊断中心排查运行状态。",
+      maintenanceHint:
+        "清理运行时产生的临时扩展、缓存等文件，也可以进入诊断中心排查运行状态。",
       openDiagnostics: "打开诊断中心",
       cleanTemp: "清理临时文件",
       cleanedItems: "已清理 {{count}} 项",
@@ -356,20 +393,35 @@ export const copy = {
       environment: "浏览器环境",
       requests: "请求",
       controlCenter: "Agent 控制台",
-      controlHint: "选择环境后，AI 可以读取页面、点击、输入、执行脚本，并记录网络资源。",
+      controlHint:
+        "选择环境后，AI 可以读取页面、点击、输入、执行脚本，并记录网络资源。",
       readContext: "读取浏览器上下文",
+      generateTask: "生成任务编排",
+      generateTaskDone:
+        "已根据聊天记录生成任务编排：{{name}}。正在打开任务详情。",
+      atCommandHint:
+        "输入 @ 后选择任务、运行日志或历史产物文件引用到对话。Enter 选择，Esc 关闭。",
+      noAtCommandMatches: "没有匹配的 @ 引用项",
+      mentionTask: "任务编排",
+      mentionRun: "运行日志",
+      mentionFile: "产物文件",
+      mentionRecording: "录制事件",
+      attachedReferences: "已引用",
       startRecording: "开始录制",
       stopRecording: "停止录制",
-      configMissing: "请先在设置页补全 AIGC Base URL、模型和 API Key，并至少选择一个环境。",
+      configMissing:
+        "请先在设置页补全 AIGC Base URL、模型和 API Key，并至少选择一个环境。",
       configTitle: "先配置 AIGC 参数",
-      configDescription: "AI Agent 需要 OpenAI 兼容的 Base URL、模型和 API Key。配置完成后，就可以在这里通过对话操作浏览器。",
+      configDescription:
+        "AI Agent 需要 OpenAI 兼容的 Base URL、模型和 API Key。配置完成后，就可以在这里通过对话操作浏览器。",
       goSettings: "去设置",
       capNavigate: "打开网页与页面跳转",
       capInteract: "点击、输入、等待元素",
       capEvaluate: "执行页面 JS 与读取上下文",
       capRecord: "录制请求、响应和资源事件",
       emptyTitle: "开始和 AI 对话",
-      emptyDescription: "例如：打开百度搜索 Orbit Browser，并告诉我结果页有哪些可点击元素。",
+      emptyDescription:
+        "例如：打开百度搜索 Orbit Browser，并告诉我结果页有哪些可点击元素。",
       placeholder: "告诉 AI 你想如何操作浏览器…",
       shortcutHint: "Enter / Shift + Enter 发送",
       send: "发送",
@@ -472,6 +524,13 @@ export const copy = {
       status: "Status",
       task: "Task",
       timezone: "Timezone",
+      pagination: {
+        range: "{{start}}-{{end}} of {{total}}",
+        pageSize: "Per page",
+        page: "Page {{current}} / {{total}}",
+        previous: "Previous page",
+        next: "Next page",
+      },
     },
     layout: {
       nav: {
@@ -542,7 +601,8 @@ export const copy = {
       newEnvironment: "New Environment",
       loadFailed: "Failed to load environments",
       emptyTitle: "No matching environments",
-      emptyDescription: "Create isolated profiles for different sites, accounts, or regions.",
+      emptyDescription:
+        "Create isolated profiles for different sites, accounts, or regions.",
       table: {
         name: "Name",
         group: "Group",
@@ -564,7 +624,8 @@ export const copy = {
         duplicate: "Duplicate",
       },
       deleteTitle: "Delete Environment",
-      deleteBody: "Deleting this environment stops it and removes related runs, logs, artifacts, and profile data.",
+      deleteBody:
+        "Deleting this environment stops it and removes related runs, logs, artifacts, and profile data.",
       proxyReachable: "Proxy reachable",
       proxyNotConfigured: "No proxy configured",
       proxyHttpStatus: "HTTP {{status}}",
@@ -581,7 +642,8 @@ export const copy = {
       },
       bulk: {
         import: "Bulk Import",
-        importHint: "Supports a JSON array or CSV. CSV headers may include name, group, tags, proxy_kind, proxy_host, proxy_port, locale, timezone, and start_url.",
+        importHint:
+          "Supports a JSON array or CSV. CSV headers may include name, group, tags, proxy_kind, proxy_host, proxy_port, locale, timezone, and start_url.",
         importInput: "Import Content",
         importPreview: "Import Preview",
         importConfirm: "Import {{count}} environments",
@@ -599,7 +661,8 @@ export const copy = {
         tagMode: "Tag Mode",
         appendTags: "Append tags",
         replaceTags: "Replace tags",
-        deleteBody: "This deletes {{count}} environments and removes related runs, logs, artifacts, and profile directories.",
+        deleteBody:
+          "This deletes {{count}} environments and removes related runs, logs, artifacts, and profile directories.",
       },
       saveEnvironment: "Save Environment",
       editTitle: "Edit Environment",
@@ -625,7 +688,8 @@ export const copy = {
         profileHint: "Leave empty to let the app create an isolated profile.",
         webRtcProtection: "Enable WebRTC leak protection",
         locale: "Locale",
-        localeHint: "Use auto to derive browser languages and Intl locale from the IP region.",
+        localeHint:
+          "Use auto to derive browser languages and Intl locale from the IP region.",
         proxyType: "Type",
         proxyNone: "None",
         host: "Host",
@@ -634,20 +698,25 @@ export const copy = {
         username: "Username",
         password: "Password",
         bypassList: "Bypass List",
-        timezoneHint: "Use auto to detect from IP at startup, or enter a fixed value such as Asia/Tokyo.",
+        timezoneHint:
+          "Use auto to detect from IP at startup, or enter a fixed value such as Asia/Tokyo.",
         latitude: "Latitude",
-        latitudeHint: "Leave empty to disable virtual location. Range: -90 to 90.",
+        latitudeHint:
+          "Leave empty to disable virtual location. Range: -90 to 90.",
         longitude: "Longitude",
-        longitudeHint: "Leave empty to disable virtual location. Range: -180 to 180.",
+        longitudeHint:
+          "Leave empty to disable virtual location. Range: -180 to 180.",
         viewportWidth: "Viewport Width",
         viewportHeight: "Viewport Height",
         scaleFactor: "Scale Factor",
         platform: "Platform",
-        platformHint: "Leave empty or use auto to avoid overriding it; set it manually only with a custom User-Agent.",
+        platformHint:
+          "Leave empty or use auto to avoid overriding it; set it manually only with a custom User-Agent.",
         seed: "Random Seed",
         seedHint: "Reserved field. It is not used for UA generation right now.",
         userAgent: "User-Agent",
-        userAgentHint: "Leave empty or use auto to keep Chrome's native UA; only a manual value overrides it.",
+        userAgentHint:
+          "Leave empty or use auto to keep Chrome's native UA; only a manual value overrides it.",
       },
     },
     tasks: {
@@ -671,7 +740,8 @@ export const copy = {
       taskList: "Task List",
       countUnit: "",
       emptyTitle: "No tasks yet",
-      emptyDescription: "Create a task, then open its detail page to edit scripts and choose run targets.",
+      emptyDescription:
+        "Create a task, then open its detail page to edit scripts and choose run targets.",
       openTask: "Open task",
       backToList: "Back to list",
       validate: "Validate",
@@ -695,17 +765,21 @@ export const copy = {
       saveTask: "Save Task",
       editTitle: "Edit Task",
       newTitle: "New Task",
-      detailSubtitle: "Maintain the script, run targets, and recent execution history here.",
-      newTaskHint: "Fill in task details and script first. Save it before running across environments.",
+      detailSubtitle:
+        "Maintain the script, run targets, and recent execution history here.",
+      newTaskHint:
+        "Fill in task details and script first. Save it before running across environments.",
       taskNotFoundTitle: "Task not found",
-      taskNotFoundDescription: "This task may have been deleted. Return to the list and choose another task.",
+      taskNotFoundDescription:
+        "This task may have been deleted. Return to the list and choose another task.",
       validationJoiner: "; ",
       taskName: "Task Name",
       description: "Description",
       scriptEditor: "Script Editor",
       deleteTitle: "Delete Task",
       deleteTask: "Delete Task",
-      deleteBody: "Deleting this task also removes related run history, logs, and local artifacts.",
+      deleteBody:
+        "Deleting this task also removes related run history, logs, and local artifacts.",
     },
     runs: {
       metrics: {
@@ -718,7 +792,8 @@ export const copy = {
       pageTitle: "Run History",
       loadFailed: "Failed to load runs",
       emptyTitle: "No run history",
-      emptyDescription: "Run a task to collect logs, screenshots, JSON files, and other artifacts here.",
+      emptyDescription:
+        "Run a task to collect logs, screenshots, JSON files, and other artifacts here.",
       table: {
         task: "Task",
         environment: "Environment",
@@ -740,10 +815,34 @@ export const copy = {
       noArtifacts: "No artifacts",
       openArtifact: "Open artifact",
       emptyDetailTitle: "No run selected",
-      emptyDetailDescription: "Select a run to inspect logs, artifacts, and retry actions.",
+      emptyDetailDescription:
+        "Select a run to inspect logs, artifacts, and retry actions.",
       deleteTitle: "Delete Run",
       deleteButton: "Delete Run",
-      deleteBody: "Deleting this run also removes its logs and local artifacts. Active runs must be cancelled first.",
+      deleteBody:
+        "Deleting this run also removes its logs and local artifacts. Active runs must be cancelled first.",
+      bulk: {
+        selected: "{{count}} runs selected",
+        selectPage: "Select Page",
+        selectRun: "Select run",
+        clear: "Clear Selection",
+        cancel: "Cancel {{count}}",
+        retry: "Retry {{count}}",
+        delete: "Delete {{count}}",
+        deleteTitle: "Delete Runs",
+        confirmDelete: "Delete {{count}}",
+        deleteBody:
+          "This deletes {{count}} finished runs and removes their logs and local artifacts.",
+        activeSkipped:
+          "Skipped {{count}} active runs. Cancel them before deleting.",
+      },
+      pagination: {
+        range: "{{start}}-{{end}} of {{total}}",
+        pageSize: "Per page",
+        page: "Page {{current}} / {{total}}",
+        previous: "Previous page",
+        next: "Next page",
+      },
     },
     settings: {
       general: "General Settings",
@@ -773,7 +872,8 @@ export const copy = {
       currentDirectory: "Current Directory",
       openDirectory: "Open Directory",
       maintenance: "Maintenance",
-      maintenanceHint: "Clean runtime temp files, or open diagnostics to inspect runtime health.",
+      maintenanceHint:
+        "Clean runtime temp files, or open diagnostics to inspect runtime health.",
       openDiagnostics: "Open Diagnostics",
       cleanTemp: "Clean Temp Files",
       cleanedItems: "Cleaned {{count}} items",
@@ -786,20 +886,35 @@ export const copy = {
       environment: "Browser Environment",
       requests: "Requests",
       controlCenter: "Agent Console",
-      controlHint: "After selecting an environment, AI can read pages, click, type, run scripts, and record network resources.",
+      controlHint:
+        "After selecting an environment, AI can read pages, click, type, run scripts, and record network resources.",
       readContext: "Read Browser Context",
+      generateTask: "Generate Task",
+      generateTaskDone:
+        "Generated an automation task from this chat: {{name}}. Opening task details.",
+      atCommandHint:
+        "Type @ to reference tasks, run logs, or generated files. Enter selects, Esc closes.",
+      noAtCommandMatches: "No @ references matched",
+      mentionTask: "Task",
+      mentionRun: "Run logs",
+      mentionFile: "Artifact file",
+      mentionRecording: "Recording",
+      attachedReferences: "References",
       startRecording: "Start Recording",
       stopRecording: "Stop Recording",
-      configMissing: "Complete AIGC Base URL, model, and API Key in Settings, then select an environment.",
+      configMissing:
+        "Complete AIGC Base URL, model, and API Key in Settings, then select an environment.",
       configTitle: "Configure AIGC first",
-      configDescription: "AI Agent requires an OpenAI-compatible Base URL, model, and API Key. After configuration, you can operate the browser conversationally here.",
+      configDescription:
+        "AI Agent requires an OpenAI-compatible Base URL, model, and API Key. After configuration, you can operate the browser conversationally here.",
       goSettings: "Go to Settings",
       capNavigate: "Navigate pages and URLs",
       capInteract: "Click, type, and wait for elements",
       capEvaluate: "Run page JS and read context",
       capRecord: "Record requests, responses, and resources",
       emptyTitle: "Start chatting with AI",
-      emptyDescription: "Example: open a search engine, search Orbit Browser, and tell me what is clickable.",
+      emptyDescription:
+        "Example: open a search engine, search Orbit Browser, and tell me what is clickable.",
       placeholder: "Tell AI how to operate the browser…",
       shortcutHint: "Enter / Shift + Enter to send",
       send: "Send",
@@ -807,7 +922,8 @@ export const copy = {
       thinking: "AI is thinking or operating the browser…",
       stoppedByUser: "This turn was stopped manually.",
       stoppedByError: "This turn stopped because of an error: {{message}}",
-      emptyAssistantResponse: "No displayable content was returned for this turn.",
+      emptyAssistantResponse:
+        "No displayable content was returned for this turn.",
       sessions: "Sessions",
       newSession: "New Session",
       currentSession: "Current Session",
@@ -820,7 +936,8 @@ export const copy = {
       context: "Browser Context",
       elements: "Interactive Elements",
       visibleText: "Visible Text",
-      noContext: "No context yet. Read it manually or ask AI to inspect the page.",
+      noContext:
+        "No context yet. Read it manually or ask AI to inspect the page.",
       recording: "Recording Events",
       recordingActive: "Recording",
       recordingStopped: "Stopped",
@@ -880,7 +997,10 @@ type TranslationValues = Record<string, string | number>;
 
 export type StatusKey = EnvironmentRuntimeStatus | TaskRunStatus | RunLogLevel;
 
-export function interpolate(template: string, values?: TranslationValues): string {
+export function interpolate(
+  template: string,
+  values?: TranslationValues,
+): string {
   if (!values) {
     return template;
   }
@@ -890,7 +1010,10 @@ export function interpolate(template: string, values?: TranslationValues): strin
   );
 }
 
-export function getStatusLabel(status: StatusKey, language: AppLanguage): string {
+export function getStatusLabel(
+  status: StatusKey,
+  language: AppLanguage,
+): string {
   return copy[language].status[status] ?? status;
 }
 

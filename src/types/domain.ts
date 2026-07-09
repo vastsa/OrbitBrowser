@@ -187,6 +187,15 @@ export interface RunArtifact {
   created_at: string;
 }
 
+export interface RunArtifactContent {
+  path: string;
+  label: string;
+  kind: RunArtifactKind | string;
+  content: string;
+  bytes: number;
+  truncated: boolean;
+}
+
 export interface RunFilters {
   batch_id?: string;
   task_id?: string;

@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   ChevronDown,
   CircleStop,
+  ClipboardList,
   FileSearch,
+  History,
   GripHorizontal,
   MessageSquareText,
   Loader2,
@@ -32,9 +34,18 @@ import { useUiStore } from "@/stores/uiStore";
 import type {
   AgentArtifactRef,
   AgentHistorySession,
+  AgentRecordingEvent,
+  AgentRecordingSummary,
+  AutomationTask,
+  AutomationTaskDraft,
   BrowserContextSnapshot,
   Environment,
+  RunArtifact,
+  RunArtifactContent,
+  RunLog,
   Settings,
+  TaskRun,
+  TaskRunStatus,
 } from "@/types/domain";
 
 const MarkdownMessageRenderer = lazy(() =>
@@ -46,6 +57,13 @@ const MarkdownMessageRenderer = lazy(() =>
 type ChatMessage = AgentChatMessage;
 type OpenAIMessage = AgentOpenAIMessage;
 type ToolCall = AgentToolCall;
+
+type AttachedReference = {
+  id: string;
+  label: string;
+  detail: string;
+  content: string;
+};
 
 function createAbortError() {
   return new DOMException("AI conversation stopped", "AbortError");
@@ -208,11 +226,92 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "task_list",
+      description: "列出本地任务编排摘要，用于查找需要完善或排障的任务。",
+      parameters: {
+        type: "object",
+        properties: { limit: { type: "integer", minimum: 1, maximum: 100 } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "task_get",
+      description: "读取指定任务编排的完整脚本和配置。",
+      parameters: {
+        type: "object",
+        properties: { task_id: { type: "string" } },
+        required: ["task_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "task_save",
+      description: "创建或更新任务编排。提供 task_id 时更新已有任务；不提供时创建新任务。修改前应先读取任务和相关运行日志。",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "已有任务 ID；为空时创建新任务。" },
+          name: { type: "string" },
+          description: { type: "string" },
+          script: { type: "string" },
+          timeout_sec: { type: "integer", minimum: 5, maximum: 3600 },
+          permissions: {
+            type: "object",
+            properties: {
+              screenshots: { type: "boolean" },
+              external_urls: { type: "array", items: { type: "string" } },
+              clipboard: { type: "boolean" },
+            },
+          },
+        },
+        required: ["name", "script"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "task_runs",
+      description: "读取任务或环境的运行记录摘要，常用于定位失败运行。",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          environment_id: { type: "string" },
+          status: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "task_run_logs",
+      description: "读取指定运行记录的日志，用于根据真实失败信息完善任务编排。",
+      parameters: {
+        type: "object",
+        properties: {
+          run_id: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 200 },
+        },
+        required: ["run_id"],
+      },
+    },
+  },
 ] as const;
 
 function buildSystemPrompt(environment?: Environment) {
   return `你是 Orbit Browser 的 AI Agent，负责用对话方式协助用户操作本地隔离浏览器环境。\n\n规则：\n1. 你可以通过工具读取页面上下文、打开 URL、点击、输入、等待、执行 JS、开始/停止录制网络资源。\n2. 操作浏览器前必须优先读取上下文，必要时解释你下一步会做什么。\n3. selector 必须来自 browser_context 返回的 interactive_elements.selector，或来自 browser_evaluate 实时查询到的 DOM 结果。严禁使用“已知 selector”、经验 selector、猜测 selector。\n4. 如果没有目标元素或 selector 不确定，不要继续猜测；必须再次调用 browser_context，或用 browser_evaluate 查询页面 DOM 后再操作。\n5. 工具调用失败时，先读取最新上下文再恢复，不要重复使用失败 selector。\n6. 浏览器操作后总结结果，若失败，给出可恢复建议。\n7. 浏览器工具结果可能包含 artifacts 引用。常规任务优先使用摘要中的 visible_text 与 interactive_elements；只有摘要不足时才调用 agent_read_artifact 读取完整片段。
-8. 回复使用简体中文，简洁专业。\n\n当前环境：${environment ? `${environment.name} (${environment.id})` : "未选择"}`;
+8. 当用户要求完善、修复或优化任务编排时，优先引用或读取相关任务、最近运行记录和失败日志，再给出修改建议；用户要求直接保存时，可调用 task_save 创建或更新任务编排。
+9. 回复使用简体中文，简洁专业。\n\n当前环境：${environment ? `${environment.name} (${environment.id})` : "未选择"}`;
 }
 
 function normalizeBaseUrl(value: string) {
@@ -423,6 +522,259 @@ ${compacted}` : compacted;
   }
 
   return truncateText(content, MODEL_GENERIC_TEXT_LIMIT);
+}
+
+function stripJsonCodeFence(value: string) {
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return trimmed;
+}
+
+function normalizeGeneratedTaskDraft(value: unknown) {
+  if (!isRecord(value)) {
+    throw new Error("AI 未返回有效的任务 JSON");
+  }
+
+  const name = String(value.name ?? "").trim();
+  const script = String(value.script ?? "").trim();
+  if (!name || !script) {
+    throw new Error("AI 返回的任务缺少 name 或 script 字段");
+  }
+
+  const timeout = Number(value.timeout_sec ?? value.timeoutSec ?? 120);
+  const permissions = isRecord(value.permissions) ? value.permissions : {};
+  const externalUrls = Array.isArray(permissions.external_urls)
+    ? permissions.external_urls.filter((item): item is string => typeof item === "string")
+    : ["<all_urls>"];
+
+  return {
+    name: name.slice(0, 80),
+    description: String(value.description ?? "由智能助手根据当前聊天记录生成。").trim(),
+    script,
+    timeout_sec: Number.isFinite(timeout) ? Math.min(3600, Math.max(5, Math.round(timeout))) : 120,
+    api_version: "v1",
+    permissions: {
+      screenshots: typeof permissions.screenshots === "boolean" ? permissions.screenshots : true,
+      external_urls: externalUrls.length ? externalUrls : ["<all_urls>"],
+      clipboard: typeof permissions.clipboard === "boolean" ? permissions.clipboard : true,
+    },
+  };
+}
+
+function buildTaskReference(task: AutomationTask) {
+  return `[引用任务编排]
+任务ID: ${task.id}
+任务名称: ${task.name}
+描述: ${task.description || "无"}
+超时时间: ${task.timeout_sec} 秒
+API版本: ${task.api_version}
+权限: ${JSON.stringify(task.permissions ?? {})}
+
+脚本:
+\`\`\`js
+${truncateText(task.script, 20000)}
+\`\`\`
+[/引用任务编排]`;
+}
+
+function buildRunLogsReference(
+  run: TaskRun,
+  logs: RunLog[],
+  taskName: string,
+  environmentName: string,
+) {
+  const recentLogs = logs.slice(-120).map((log) => {
+    const time = log.created_at ? formatDateTime(log.created_at) : "-";
+    const data = log.data_json ? ` data=${truncateText(log.data_json, 600)}` : "";
+    return `#${log.seq} [${log.level}] ${time} ${log.message}${data}`;
+  });
+
+  return `[引用运行记录日志]
+运行ID: ${run.id}
+批次ID: ${run.batch_id || "无"}
+任务: ${taskName} (${run.task_id})
+环境: ${environmentName} (${run.environment_id})
+状态: ${run.status}
+尝试次数: ${run.attempt}
+排队时间: ${run.queued_at || "-"}
+开始时间: ${run.started_at || "-"}
+结束时间: ${run.finished_at || "-"}
+错误: ${run.error_message || run.error_code || "无"}
+
+最近日志:
+${recentLogs.length ? recentLogs.join("\n") : "无日志"}
+[/引用运行记录日志]`;
+}
+
+function buildRunArtifactReference(
+  artifact: RunArtifact,
+  content: RunArtifactContent,
+  taskName: string,
+) {
+  return `[引用产物文件]
+文件: ${artifact.label}
+类型: ${artifact.kind}
+路径: ${artifact.path}
+来源运行: ${artifact.run_id}
+来源任务: ${taskName}
+大小: ${content.bytes} bytes
+是否截断: ${content.truncated ? "是" : "否"}
+
+内容:
+\`\`\`
+${content.content}
+\`\`\`
+[/引用产物文件]`;
+}
+
+function formatRecordingEventLine(event: AgentRecordingEvent, index: number) {
+  return `#${index + 1} [${event.kind}] ${event.method || "-"} ${event.status ?? "-"} ${event.resource_type || "-"} ${event.title || ""} ${event.url || ""} @ ${event.timestamp}`.trim();
+}
+
+function buildRecordingReference(summary: AgentRecordingSummary, event?: AgentRecordingEvent) {
+  if (event) {
+    return `[引用录制事件产物]
+环境ID: ${summary.environment_id}
+录制状态: ${summary.is_recording ? "录制中" : "已停止"}
+开始时间: ${summary.started_at || "-"}
+停止时间: ${summary.stopped_at || "-"}
+
+事件类型: ${event.kind}
+请求方法: ${event.method || "-"}
+URL: ${event.url || "-"}
+状态码: ${event.status ?? "-"}
+资源类型: ${event.resource_type || "-"}
+标题: ${event.title || "-"}
+时间: ${event.timestamp}
+[/引用录制事件产物]`;
+  }
+
+  const events = summary.events.slice(-120).map(formatRecordingEventLine);
+  return `[引用录制事件产物]
+环境ID: ${summary.environment_id}
+录制状态: ${summary.is_recording ? "录制中" : "已停止"}
+开始时间: ${summary.started_at || "-"}
+停止时间: ${summary.stopped_at || "-"}
+事件总数: ${summary.total_events}
+请求数: ${summary.total_requests}
+响应数: ${summary.total_responses}
+
+最近事件:
+${events.length ? events.join("\n") : "无事件"}
+[/引用录制事件产物]`;
+}
+
+function extractRecordingSummariesFromMessages(messages: ChatMessage[]): AgentRecordingSummary[] {
+  return messages.flatMap((message) => {
+    if (message.role !== "tool" || !message.toolName?.startsWith("recording_")) return [];
+    const jsonStart = message.content.indexOf("{");
+    if (jsonStart < 0) return [];
+
+    try {
+      const envelope = JSON.parse(message.content.slice(jsonStart));
+      const value = envelope.summary ?? envelope.result;
+      if (!isRecord(value) || !Array.isArray(value.events)) return [];
+      return [value as unknown as AgentRecordingSummary];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function getActiveAtMention(value: string, cursor: number) {
+  const beforeCursor = value.slice(0, cursor);
+  const atIndex = beforeCursor.lastIndexOf("@");
+  if (atIndex < 0) return null;
+  if (atIndex > 0 && !/\s/.test(beforeCursor[atIndex - 1])) return null;
+
+  const query = beforeCursor.slice(atIndex + 1);
+  if (/\s/.test(query)) return null;
+
+  return { atIndex, query: query.toLowerCase() };
+}
+
+function compactTaskForModel(task: AutomationTask, includeScript = false) {
+  return {
+    id: task.id,
+    name: task.name,
+    description: task.description,
+    timeout_sec: task.timeout_sec,
+    api_version: task.api_version,
+    permissions: task.permissions,
+    updated_at: task.updated_at,
+    script_lines: task.script.split("\n").length,
+    ...(includeScript
+      ? { script: truncateText(task.script, 24000) }
+      : { script_preview: truncateText(task.script, 1600) }),
+  };
+}
+
+function compactRunForModel(run: TaskRun) {
+  return {
+    id: run.id,
+    batch_id: run.batch_id,
+    task_id: run.task_id,
+    environment_id: run.environment_id,
+    status: run.status,
+    attempt: run.attempt,
+    queued_at: run.queued_at,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    error_code: run.error_code,
+    error_message: truncateText(run.error_message, 1200),
+  };
+}
+
+function compactRunLogForModel(log: RunLog) {
+  return {
+    seq: log.seq,
+    level: log.level,
+    message: truncateText(log.message, 1200),
+    data_json: log.data_json ? truncateText(log.data_json, 1200) : null,
+    created_at: log.created_at,
+  };
+}
+
+function createTaskDraftFromToolArgs(
+  args: Record<string, unknown>,
+  existingTask?: AutomationTask,
+): AutomationTaskDraft {
+  const name = String(args.name ?? existingTask?.name ?? "").trim();
+  const script = String(args.script ?? existingTask?.script ?? "").trim();
+  if (!name) throw new Error("Missing required field: name");
+  if (!script) throw new Error("Missing required field: script");
+
+  const timeout = Number(args.timeout_sec ?? existingTask?.timeout_sec ?? 120);
+  const permissions = isRecord(args.permissions) ? args.permissions : existingTask?.permissions;
+  const externalUrls = isRecord(permissions) && Array.isArray(permissions.external_urls)
+    ? permissions.external_urls.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : existingTask?.permissions?.external_urls ?? ["<all_urls>"];
+
+  return {
+    ...(typeof args.task_id === "string" && args.task_id.trim() ? { id: args.task_id.trim() } : existingTask?.id ? { id: existingTask.id } : {}),
+    name: name.slice(0, 120),
+    description: String(args.description ?? existingTask?.description ?? "").trim(),
+    script,
+    timeout_sec: Number.isFinite(timeout) ? Math.min(3600, Math.max(5, Math.round(timeout))) : 120,
+    api_version: existingTask?.api_version ?? "v1",
+    permissions: {
+      screenshots: isRecord(permissions) && typeof permissions.screenshots === "boolean"
+        ? permissions.screenshots
+        : existingTask?.permissions?.screenshots ?? true,
+      external_urls: externalUrls.length ? externalUrls : ["<all_urls>"],
+      clipboard: isRecord(permissions) && typeof permissions.clipboard === "boolean"
+        ? permissions.clipboard
+        : existingTask?.permissions?.clipboard ?? true,
+    },
+  };
 }
 
 function sanitizeChatMessageForStorage(message: ChatMessage): ChatMessage {
@@ -727,6 +1079,7 @@ function ChatMessageContent({ content, role }: { content: string; role: ChatMess
 
 export function AgentPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const setHeaderActions = useUiStore((state) => state.setHeaderActions);
   const { copy, language } = useI18n();
   const text = copy.agent;
@@ -734,6 +1087,11 @@ export function AgentPage() {
   const [sessionId, setSessionId] = useState(agentRuntimeRefs.sessionId);
   const [deleteTarget, setDeleteTarget] = useState<AgentHistorySession | null>(null);
   const [input, setInput] = useState("");
+  const [isGeneratingTask, setIsGeneratingTask] = useState(false);
+  const [isResolvingMention, setIsResolvingMention] = useState(false);
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [activeMention, setActiveMention] = useState<{ atIndex: number; query: string } | null>(null);
+  const [attachedReferences, setAttachedReferences] = useState<AttachedReference[]>([]);
   const [sidePanelHeights, setSidePanelHeights] = useState<SidePanelHeights>({
     sessions: 260,
     context: 340,
@@ -767,6 +1125,7 @@ export function AgentPage() {
   const setSessions = useAgentRuntimeStore((state) => state.setSessions);
   const toggleToolMessage = useAgentRuntimeStore((state) => state.toggleToolMessage);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const sidePanelRef = useRef<HTMLElement | null>(null);
   const loadedHistoryRef = useRef<string | null>(null);
   const composingRef = useRef(false);
@@ -783,10 +1142,44 @@ export function AgentPage() {
     queryFn: browserApi.getSettings,
   });
 
+  const tasksQuery = useQuery({
+    queryKey: ["tasks"],
+    queryFn: browserApi.listTasks,
+  });
+
+  const runsQuery = useQuery({
+    queryKey: ["runs", "agent-reference"],
+    queryFn: () => browserApi.listRuns({ status: "all" }),
+  });
+
+  const runArtifactsQuery = useQuery({
+    enabled: Boolean(runsQuery.data?.length),
+    queryKey: ["run-artifacts", "agent-mentions", (runsQuery.data ?? []).slice(0, 25).map((run) => run.id).join(",")],
+    queryFn: async () => {
+      const recentRuns = (runsQuery.data ?? []).slice(0, 25);
+      const artifactGroups = await Promise.all(
+        recentRuns.map(async (run) => ({
+          run,
+          artifacts: await browserApi.listRunArtifacts(run.id),
+        })),
+      );
+      return artifactGroups.flatMap(({ run, artifacts }) =>
+        artifacts.map((artifact) => ({ run, artifact })),
+      );
+    },
+  });
+
   const selectedEnvironment = useMemo(
     () => environmentsQuery.data?.find((item) => item.id === environmentId),
     [environmentId, environmentsQuery.data],
   );
+
+  const taskNameById = (taskId: string) =>
+    tasksQuery.data?.find((task) => task.id === taskId)?.name ?? taskId;
+
+  const environmentNameById = (targetEnvironmentId: string) =>
+    environmentsQuery.data?.find((environment) => environment.id === targetEnvironmentId)?.name ??
+    targetEnvironmentId;
 
   const activeSession = useMemo(
     () => sessions.find((item) => item.session_id === sessionId),
@@ -1177,6 +1570,99 @@ ${preview}`,
       return modelResult;
     }
 
+    if (name === "task_list") {
+      const limit = typeof args.limit === "number" ? args.limit : 50;
+      const tasks = await browserApi.listTasks();
+      throwIfStopped();
+      const result = {
+        total: tasks.length,
+        tasks: tasks.slice(0, limit).map((task) => compactTaskForModel(task)),
+      };
+      const modelResult = createToolSuccessEnvelope(name, result);
+      markToolDone(modelResult);
+      return modelResult;
+    }
+
+    if (name === "task_get") {
+      const taskId = typeof args.task_id === "string" ? args.task_id : "";
+      if (!taskId) throw new Error("Missing required field: task_id");
+      const tasks = await browserApi.listTasks();
+      throwIfStopped();
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) throw new Error(`Task not found: ${taskId}`);
+      const modelResult = createToolSuccessEnvelope(name, compactTaskForModel(task, true));
+      markToolDone(modelResult);
+      return modelResult;
+    }
+
+    if (name === "task_save") {
+      const taskId = typeof args.task_id === "string" ? args.task_id.trim() : "";
+      const tasks = taskId ? await browserApi.listTasks() : [];
+      throwIfStopped();
+      const existingTask = taskId ? tasks.find((item) => item.id === taskId) : undefined;
+      if (taskId && !existingTask) throw new Error(`Task not found: ${taskId}`);
+
+      const draft = createTaskDraftFromToolArgs(args, existingTask);
+      const validation = await browserApi.validateTaskScript(draft.script);
+      throwIfStopped();
+      if (!validation.valid) {
+        const modelResult = createToolSuccessEnvelope(name, {
+          saved: false,
+          validation,
+          message: "脚本校验未通过，任务未保存。请根据 errors 修正后重新调用 task_save。",
+        });
+        markToolDone(modelResult);
+        return modelResult;
+      }
+
+      const task = await browserApi.saveTask(draft);
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      await queryClient.invalidateQueries({ queryKey: ["runs"] });
+      throwIfStopped();
+      const modelResult = createToolSuccessEnvelope(name, {
+        saved: true,
+        mode: existingTask ? "updated" : "created",
+        validation,
+        task: compactTaskForModel(task, true),
+      });
+      markToolDone(modelResult);
+      return modelResult;
+    }
+
+    if (name === "task_runs") {
+      const limit = typeof args.limit === "number" ? args.limit : 30;
+      const status = typeof args.status === "string" ? args.status : "all";
+      const runs = await browserApi.listRuns({
+        task_id: typeof args.task_id === "string" ? args.task_id : undefined,
+        environment_id: typeof args.environment_id === "string" ? args.environment_id : undefined,
+        status: status as TaskRunStatus | "all",
+      });
+      throwIfStopped();
+      const result = {
+        total: runs.length,
+        runs: runs.slice(0, limit).map(compactRunForModel),
+      };
+      const modelResult = createToolSuccessEnvelope(name, result);
+      markToolDone(modelResult);
+      return modelResult;
+    }
+
+    if (name === "task_run_logs") {
+      const runId = typeof args.run_id === "string" ? args.run_id : "";
+      if (!runId) throw new Error("Missing required field: run_id");
+      const limit = typeof args.limit === "number" ? args.limit : 80;
+      const logs = await browserApi.getRunLogs(runId);
+      throwIfStopped();
+      const result = {
+        run_id: runId,
+        total_logs: logs.length,
+        logs: logs.slice(-limit).map(compactRunLogForModel),
+      };
+      const modelResult = createToolSuccessEnvelope(name, result);
+      markToolDone(modelResult);
+      return modelResult;
+    }
+
     if (name === "recording_start") {
       const result = await browserApi.agentStartBrowserRecording(environmentId);
       throwIfStopped();
@@ -1473,7 +1959,19 @@ ${preview}`,
     const settings = settingsQuery.data;
     if (!content || !settings || !ready || isRunning) return;
 
+    const references = attachedReferences;
+    const referenceContext = references.length
+      ? `\n\n[引用上下文]\n${references
+          .map((item) => `${item.label} ${item.detail}\n${item.content}`)
+          .join("\n\n")}\n[/引用上下文]`
+      : "";
+    const modelContent = `${content}${referenceContext}`;
+    const visibleContent = references.length
+      ? `${content}\n\n${text.attachedReferences}: ${references.map((item) => item.label).join(", ")}`
+      : content;
+
     setInput("");
+    setAttachedReferences([]);
     setError(null);
     setIsRunning(true);
     agentRuntimeRefs.stopped = false;
@@ -1484,13 +1982,13 @@ ${preview}`,
     agentRuntimeRefs.environmentId = environmentId;
     agentRuntimeRefs.sessionId = sessionId;
 
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content };
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: visibleContent };
     appendVisible(userMessage);
 
     const baseHistory: OpenAIMessage[] = [
       { role: "system", content: buildSystemPrompt(selectedEnvironment) },
       ...compactApiHistoryForModel(apiMessages),
-      { role: "user", content },
+      { role: "user", content: modelContent },
     ];
 
     try {
@@ -1578,6 +2076,236 @@ ${preview}`,
     }
   };
 
+  type MentionSuggestion = {
+    id: string;
+    kind: "task" | "run" | "file" | "recording";
+    label: string;
+    detail: string;
+    resolve: () => Promise<string> | string;
+  };
+
+  const mentionSuggestions = useMemo<MentionSuggestion[]>(() => {
+    const taskSuggestions: MentionSuggestion[] = (tasksQuery.data ?? []).map((task) => ({
+      id: `task:${task.id}`,
+      kind: "task",
+      label: `@${task.name}`,
+      detail: `${text.mentionTask} · ${task.description || copy.common.noDescription}`,
+      resolve: () => buildTaskReference(task),
+    }));
+
+    const runSuggestions: MentionSuggestion[] = (runsQuery.data ?? []).slice(0, 50).map((run) => ({
+      id: `run:${run.id}`,
+      kind: "run",
+      label: `@${taskNameById(run.task_id)} / ${run.status}`,
+      detail: `${text.mentionRun} · ${environmentNameById(run.environment_id)} · ${formatDateTime(run.started_at ?? run.queued_at, language)}`,
+      resolve: async () => {
+        const logs = await browserApi.getRunLogs(run.id);
+        return buildRunLogsReference(
+          run,
+          logs,
+          taskNameById(run.task_id),
+          environmentNameById(run.environment_id),
+        );
+      },
+    }));
+
+    const fileSuggestions: MentionSuggestion[] = (runArtifactsQuery.data ?? []).map(({ run, artifact }) => ({
+      id: `file:${artifact.path}`,
+      kind: "file",
+      label: `@${artifact.label}`,
+      detail: `${text.mentionFile} · ${artifact.kind} · ${taskNameById(run.task_id)}`,
+      resolve: async () => {
+        const content = await browserApi.readRunArtifact(artifact.path, 60_000);
+        return buildRunArtifactReference(artifact, content, taskNameById(run.task_id));
+      },
+    }));
+
+    const recordingSummaries = [
+      ...(recording ? [recording] : []),
+      ...extractRecordingSummariesFromMessages(messages),
+    ].filter((item, index, items) =>
+      items.findIndex((candidate) =>
+        candidate.environment_id === item.environment_id &&
+        candidate.started_at === item.started_at &&
+        candidate.stopped_at === item.stopped_at,
+      ) === index,
+    );
+
+    const recordingSuggestions: MentionSuggestion[] = recordingSummaries.flatMap((summary, summaryIndex) => {
+      const summarySuggestion: MentionSuggestion = {
+        id: `recording:${summary.environment_id}:${summary.started_at ?? summaryIndex}`,
+        kind: "recording",
+        label: `@${text.mentionRecording} ${summary.total_events}`,
+        detail: `${text.mentionRecording} · ${summary.is_recording ? text.recordingActive : text.recordingStopped} · ${summary.total_requests}/${summary.total_responses}`,
+        resolve: () => buildRecordingReference(summary),
+      };
+
+      const eventSuggestions = summary.events.slice(-30).map((event, eventIndex) => ({
+        id: `recording-event:${summary.environment_id}:${summary.started_at ?? summaryIndex}:${event.timestamp}:${eventIndex}`,
+        kind: "recording" as const,
+        label: `@${event.title || event.resource_type || event.kind}`,
+        detail: `${text.mentionRecording} · ${event.method || "-"} ${event.status ?? "-"} · ${truncateText(event.url, 120)}`,
+        resolve: () => buildRecordingReference(summary, event),
+      }));
+
+      return [summarySuggestion, ...eventSuggestions];
+    });
+
+    return [...taskSuggestions, ...runSuggestions, ...fileSuggestions, ...recordingSuggestions];
+  }, [copy.common.noDescription, environmentNameById, language, messages, recording, runArtifactsQuery.data, runsQuery.data, taskNameById, tasksQuery.data, text.mentionFile, text.mentionRecording, text.mentionRun, text.mentionTask, text.recordingActive, text.recordingStopped]);
+
+  const filteredMentionSuggestions = useMemo(() => {
+    if (!activeMention) return [];
+    const query = activeMention.query;
+    return mentionSuggestions
+      .filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(query))
+      .slice(0, 10);
+  }, [activeMention, mentionSuggestions]);
+
+  const updateInputWithMentionState = (value: string, cursor: number) => {
+    setInput(value);
+    setMentionCursor(cursor);
+    setActiveMention(getActiveAtMention(value, cursor));
+  };
+
+  const insertMentionReference = async (suggestion: MentionSuggestion) => {
+    if (!activeMention) return;
+
+    setError(null);
+    setIsResolvingMention(true);
+    try {
+      const reference = await suggestion.resolve();
+      const compactLabel = suggestion.label.replace(/^@/, "");
+      const token = `@${compactLabel}`;
+      const before = input.slice(0, activeMention.atIndex);
+      const after = input.slice(mentionCursor);
+      const nextInput = `${before}${token} ${after.trimStart()}`;
+      const nextCursor = before.length + token.length + 1;
+      setInput(nextInput);
+      setAttachedReferences((current) => [
+        ...current.filter((item) => item.id !== suggestion.id),
+        {
+          id: suggestion.id,
+          label: token,
+          detail: suggestion.detail,
+          content: reference,
+        },
+      ]);
+      setActiveMention(null);
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsResolvingMention(false);
+    }
+  };
+
+  const generateTaskFromChat = async () => {
+    const settings = settingsQuery.data;
+    if (!settings || !ready || isRunning || isGeneratingTask || messages.length === 0) return;
+
+    setError(null);
+    setIsGeneratingTask(true);
+
+    try {
+      const compactMessages = messages
+        .filter((message) => message.role !== "tool")
+        .slice(-30)
+        .map((message) => ({
+          role: message.role,
+          content: truncateText(message.content, message.role === "assistant" ? 3000 : 2000),
+        }));
+      const toolSummaries = messages
+        .filter((message) => message.role === "tool")
+        .slice(-10)
+        .map((message) => ({
+          tool: message.toolName ?? "tool",
+          content: truncateText(compactStoredToolContent(message.content), 1200),
+        }));
+
+      const response = await fetch(`${normalizeBaseUrl(settings.aigc_base_url ?? "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settings.aigc_api_key}`,
+        },
+        body: JSON.stringify({
+          model: settings.aigc_model,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content: `你是 Orbit Browser 自动化任务编排生成器。请根据聊天记录生成一个可直接保存的自动化任务。
+
+只返回 JSON 对象，不要 Markdown。字段：
+- name: 简短任务名
+- description: 任务目标、关键步骤和来源说明
+- timeout_sec: 5 到 3600 的整数
+- permissions: { screenshots: boolean, external_urls: string[], clipboard: boolean }
+- script: JavaScript 自动化脚本
+
+脚本运行在 Orbit Browser task runtime，常用 API：
+await page.goto(url, { waitUntil: "load", timeout: 30000 });
+await page.click(selector);
+await page.type(selector, text);
+await page.wait(selector, { timeout: 10000 });
+const value = await page.evaluate(() => ({ url: location.href, title: document.title }));
+await page.screenshot("label");
+await run.outputJson("label", value);
+log.info("message");
+
+要求：
+1. 优先复用聊天中已经验证过的 URL、selector、页面观察结果和操作顺序。
+2. selector 不确定时，在脚本中通过 page.evaluate 查询候选元素，不要硬编码猜测。
+3. 脚本要有关键日志、必要等待、错误边界和输出产物。
+4. 不要包含解释性文字，只返回 JSON。`,
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                environment: selectedEnvironment
+                  ? { id: selectedEnvironment.id, name: selectedEnvironment.name, start_url: selectedEnvironment.start_url }
+                  : null,
+                chat_messages: compactMessages,
+                browser_tool_summaries: toolSummaries,
+              }),
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${await response.text()}`);
+      }
+
+      const payload = await response.json();
+      const content = payload.choices?.[0]?.message?.content;
+      if (typeof content !== "string" || !content.trim()) {
+        throw new Error("AI 未返回任务内容");
+      }
+
+      const draft = normalizeGeneratedTaskDraft(JSON.parse(stripJsonCodeFence(content)));
+      const task = await browserApi.saveTask(draft);
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
+
+      const assistantMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: text.generateTaskDone.replace("{{name}}", task.name),
+      };
+      appendVisible(assistantMessage);
+      await persistRuntimeSnapshot();
+      navigate(`/tasks/${task.id}`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsGeneratingTask(false);
+    }
+  };
+
   const refreshContext = async () => {
     if (!environmentId) return;
     const result = await browserApi.agentBrowserAction({
@@ -1630,6 +2358,15 @@ ${preview}`,
         </Button>
 
         <Button
+          icon={isGeneratingTask ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+          onClick={generateTaskFromChat}
+          disabled={!ready || isRunning || isGeneratingTask || messages.length === 0}
+          variant="primary"
+        >
+          {text.generateTask}
+        </Button>
+
+        <Button
           icon={<FileSearch className="h-4 w-4" />}
           onClick={refreshContext}
           disabled={!environmentId}
@@ -1659,8 +2396,11 @@ ${preview}`,
     environmentId,
     environmentsQuery.data,
     isRunning,
+    messages.length,
+    isGeneratingTask,
     recording?.is_recording,
     setHeaderActions,
+    text.generateTask,
     text.newSession,
     text.readContext,
     text.startRecording,
@@ -1671,7 +2411,7 @@ ${preview}`,
     <div className="h-full min-h-0 w-full">
       {!aigcConfigured ? (
         <section className="panel flex h-full min-h-0 items-center justify-center p-6">
-          <div className="max-w-xl rounded-3xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-white p-8 text-center shadow-panel">
+          <div className="agent-config-card max-w-xl rounded-3xl border border-brand-100 p-8 text-center shadow-panel">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-panel">
               <Settings2 className="h-6 w-6" />
             </div>
@@ -1698,7 +2438,7 @@ ${preview}`,
             {messages.length === 0 ? (
               <div className="flex h-full min-h-[420px] items-center justify-center p-4">
                 <EmptyState
-                  className="w-full max-w-xl bg-gradient-to-br from-white via-white to-brand-50/60 shadow-panel"
+                  className="agent-empty-state w-full max-w-xl shadow-panel"
                   icon={<Bot className="h-5 w-5" />}
                   title={text.emptyTitle}
                   description={text.emptyDescription}
@@ -1725,7 +2465,7 @@ ${preview}`,
                         ? "bg-brand-600 text-white"
                         : message.role === "tool"
                           ? "border border-line bg-ink-50 text-ink-600"
-                          : "border border-line bg-white text-ink-900"
+                          : "agent-assistant-bubble border border-line text-ink-900"
                     }`}>
                       {message.role === "tool" ? (
                         <div className="min-w-0">
@@ -1734,11 +2474,11 @@ ${preview}`,
                             onClick={() => toggleToolMessage(message.id)}
                             type="button"
                           >
-                            <span className="min-w-0">
+                            <span className="min-w-0 flex-1 overflow-hidden">
                               <span className="block truncate text-xs font-semibold text-brand-600">
                                 {message.toolName ?? "tool"}
                               </span>
-                              <span className="block truncate text-xs text-ink-500">
+                              <span className="block truncate text-[11px] leading-4 text-ink-500">
                                 {message.content.startsWith(text.toolDone) ? text.toolDone : text.toolRunning}
                               </span>
                             </span>
@@ -1780,11 +2520,77 @@ ${preview}`,
             )}
           </div>
 
-          <div className="border-t border-line bg-gradient-to-b from-white/80 to-brand-50/70 p-3">
+          <div className="agent-composer-shell border-t border-line p-3">
             {error ? <div className="mb-2 rounded-md bg-red-50 px-3 py-2 text-sm text-danger">{error}</div> : null}
-            <div className="rounded-2xl border border-line bg-white shadow-elevated transition-colors duration-200 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10">
+            <div className="agent-composer min-w-0 overflow-hidden rounded-2xl border shadow-elevated transition-colors duration-200 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10">
+              {activeMention ? (
+                <div className="agent-mention-popover min-w-0 max-w-full overflow-hidden border-b border-line px-2 py-1.5">
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] leading-4 text-ink-500">
+                    <span>{text.atCommandHint}</span>
+                    {isResolvingMention ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  </div>
+                  {filteredMentionSuggestions.length > 0 ? (
+                    <div className="grid min-w-0 gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
+                      {filteredMentionSuggestions.map((suggestion) => (
+                        <button
+                          className="control-focus flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-brand-50 disabled:cursor-wait disabled:opacity-60"
+                          disabled={isResolvingMention}
+                          key={suggestion.id}
+                          onClick={() => void insertMentionReference(suggestion)}
+                          type="button"
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-700">
+                            {suggestion.kind === "task" ? (
+                              <ClipboardList className="h-3.5 w-3.5" />
+                            ) : suggestion.kind === "run" ? (
+                              <History className="h-3.5 w-3.5" />
+                            ) : suggestion.kind === "recording" ? (
+                              <Network className="h-3.5 w-3.5" />
+                            ) : (
+                              <FileSearch className="h-3.5 w-3.5" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1 overflow-hidden">
+                            <span className="block truncate text-xs font-medium leading-4 text-ink-900">
+                              {suggestion.label}
+                            </span>
+                            <span className="block truncate text-[11px] leading-4 text-ink-500">
+                              {suggestion.detail}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-md border border-dashed border-line px-3 py-3 text-center text-xs text-ink-500">
+                      {text.noAtCommandMatches}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {attachedReferences.length > 0 ? (
+                <div className="flex min-w-0 flex-wrap gap-1.5 border-b border-line px-2 py-1.5">
+                  {attachedReferences.map((reference) => (
+                    <span
+                      className="inline-flex max-w-full items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-[11px] font-medium leading-4 text-brand-800"
+                      key={reference.id}
+                      title={reference.detail}
+                    >
+                      <span className="truncate">{reference.label}</span>
+                      <button
+                        className="rounded px-0.5 text-brand-500 hover:bg-brand-100 hover:text-brand-800"
+                        onClick={() => setAttachedReferences((current) => current.filter((item) => item.id !== reference.id))}
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <textarea
-                className="min-h-20 w-full resize-none rounded-2xl border-0 bg-transparent px-4 py-3 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
+                ref={inputRef}
+                className="min-h-20 w-full max-w-full resize-none rounded-2xl border-0 bg-transparent px-4 py-3 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
                 placeholder={text.placeholder}
                 rows={3}
                 value={input}
@@ -1795,7 +2601,8 @@ ${preview}`,
                 onCompositionStart={() => {
                   composingRef.current = true;
                 }}
-                onChange={(event) => setInput(event.target.value)}
+                onChange={(event) => updateInputWithMentionState(event.target.value, event.target.selectionStart)}
+                onClick={(event) => updateInputWithMentionState(input, event.currentTarget.selectionStart)}
                 onKeyDown={(event) => {
                   const nativeEvent = event.nativeEvent as KeyboardEvent & {
                     keyCode?: number;
@@ -1808,13 +2615,23 @@ ${preview}`,
                     nativeEvent.which === 229 ||
                     Date.now() - compositionEndedAtRef.current < 250;
                   if (isImeEnter) return;
+                  if (event.key === "Escape" && activeMention) {
+                    event.preventDefault();
+                    setActiveMention(null);
+                    return;
+                  }
+                  if (event.key === "Enter" && activeMention && filteredMentionSuggestions[0]) {
+                    event.preventDefault();
+                    void insertMentionReference(filteredMentionSuggestions[0]);
+                    return;
+                  }
                   if (event.key === "Enter") {
                     event.preventDefault();
                     void send();
                   }
                 }}
               />
-              <div className="flex items-center justify-between gap-3 border-t border-line/70 px-3 py-2">
+              <div className="agent-composer-actions flex items-center justify-between gap-3 border-t px-3 py-2">
                 <span className="truncate text-xs text-ink-500">{text.shortcutHint}</span>
                 {isRunning ? (
                   <Button
@@ -1827,7 +2644,7 @@ ${preview}`,
                   </Button>
                 ) : (
                   <Button
-                    className="h-10 rounded-xl px-4 shadow-none disabled:bg-ink-200 disabled:text-ink-500"
+                    className="h-10 rounded-xl px-4 shadow-none disabled:bg-ink-50 disabled:text-ink-500"
                     icon={<Send className="h-4 w-4" />}
                     onClick={send}
                     disabled={!ready || !input.trim()}
@@ -1878,8 +2695,8 @@ ${preview}`,
                       key={session.session_id}
                       className={`group flex min-w-0 items-center overflow-hidden rounded-xl border transition-colors ${
                         active
-                          ? "border-brand-200 bg-brand-50 text-brand-900"
-                          : "border-line bg-white text-ink-800 hover:border-brand-200 hover:bg-brand-50/60"
+                          ? "agent-session-card-active"
+                          : "agent-session-card agent-session-card-hoverable border-line text-ink-800"
                       }`}
                     >
                       <button
@@ -1898,7 +2715,7 @@ ${preview}`,
                       </button>
                       <button
                         aria-label={text.deleteSession}
-                        className="control-focus mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-400 transition hover:bg-red-50 hover:text-danger focus:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                        className="control-focus mr-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-400 transition hover:bg-red-50 hover:text-danger focus:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                         disabled={isRunning}
                         onClick={(event) => {
                           event.preventDefault();
@@ -1950,7 +2767,7 @@ ${preview}`,
                 </div>
                 <div>
                   <p className="mb-2 font-semibold text-ink-900">{text.visibleText}</p>
-                  <p className="selectable max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-white p-3 leading-5">{context.visible_text || "-"}</p>
+                  <p className="selectable agent-context-text max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-line p-3 leading-5">{context.visible_text || "-"}</p>
                 </div>
               </div>
             ) : (

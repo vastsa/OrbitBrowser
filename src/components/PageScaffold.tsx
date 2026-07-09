@@ -1,5 +1,8 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Button } from "@/components/Button";
+import { SelectControl } from "@/components/FormField";
 import { useI18n } from "@/i18n";
 
 interface PageHeaderProps {
@@ -26,7 +29,9 @@ export function PageHeader({
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="truncate text-base font-semibold tracking-tight text-ink-900">{title}</h2>
+          <h2 className="truncate text-base font-semibold tracking-tight text-ink-900">
+            {title}
+          </h2>
           {subtitle ? (
             <p className="hidden max-w-3xl truncate text-sm text-ink-500 md:block">
               {subtitle}
@@ -77,7 +82,9 @@ export function MetricTile({
           </p>
         </div>
         {icon ? (
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${metricToneClass[tone]}`}>
+          <div
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${metricToneClass[tone]}`}
+          >
             {icon}
           </div>
         ) : null}
@@ -103,7 +110,9 @@ export function SectionHeader({
           <p className="mt-0.5 text-xs text-ink-500">{subtitle}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex min-w-0 shrink-0 flex-wrap gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex min-w-0 shrink-0 flex-wrap gap-2">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -112,13 +121,98 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   const { copy } = useI18n();
 
   return (
-    <div className="grid gap-2 p-4" aria-label={copy.common.loading} role="status">
+    <div
+      className="grid gap-2 p-4"
+      aria-label={copy.common.loading}
+      role="status"
+    >
       {Array.from({ length: rows }).map((_, index) => (
         <div
           className="h-12 animate-pulse rounded-md border border-line bg-ink-50"
           key={index}
         />
       ))}
+    </div>
+  );
+}
+
+export interface TablePaginationLabels {
+  range: string;
+  pageSize: string;
+  page: string;
+  previous: string;
+  next: string;
+}
+
+interface TablePaginationProps {
+  labels: TablePaginationLabels;
+  onPageIndexChange: (pageIndex: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  pageIndex: number;
+  pageSize: number;
+  pageSizeOptions?: number[];
+  totalCount: number;
+}
+
+export function TablePagination({
+  labels,
+  onPageIndexChange,
+  onPageSizeChange,
+  pageIndex,
+  pageSize,
+  pageSizeOptions = [25, 50, 100],
+  totalCount,
+}: TablePaginationProps) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = totalCount === 0 ? 0 : safePageIndex * pageSize + 1;
+  const pageEnd = Math.min((safePageIndex + 1) * pageSize, totalCount);
+
+  return (
+    <div className="table-pagination flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-ink-600">
+      <div className="mono-tabular">
+        {labels.range
+          .replace("{{start}}", String(pageStart))
+          .replace("{{end}}", String(pageEnd))
+          .replace("{{total}}", String(totalCount))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span>{labels.pageSize}</span>
+        <SelectControl
+          wrapperClassName="w-24"
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          value={String(pageSize)}
+        >
+          {pageSizeOptions.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </SelectControl>
+        <span className="mono-tabular rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">
+          {labels.page
+            .replace("{{current}}", String(safePageIndex + 1))
+            .replace("{{total}}", String(totalPages))}
+        </span>
+        <Button
+          aria-label={labels.previous}
+          className="h-8 px-2"
+          disabled={safePageIndex === 0}
+          icon={<ChevronLeft className="h-4 w-4" />}
+          onClick={() => onPageIndexChange(Math.max(0, safePageIndex - 1))}
+          variant="ghost"
+        />
+        <Button
+          aria-label={labels.next}
+          className="h-8 px-2"
+          disabled={safePageIndex >= totalPages - 1}
+          icon={<ChevronRight className="h-4 w-4" />}
+          onClick={() =>
+            onPageIndexChange(Math.min(totalPages - 1, safePageIndex + 1))
+          }
+          variant="ghost"
+        />
+      </div>
     </div>
   );
 }

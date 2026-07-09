@@ -81,10 +81,10 @@ export function Layout() {
             return (
               <NavLink
                 className={({ isActive }) =>
-                  `group relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-3 py-2.5 text-sm transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  `app-menu-item group relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-3 py-2.5 text-sm transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                     isActive
-                      ? "border-brand-100 bg-white text-brand-700 shadow-panel"
-                      : "border-transparent text-ink-600 hover:border-white/80 hover:bg-white/72 hover:text-ink-900 hover:shadow-panel"
+                      ? "app-menu-item-active text-brand-700 shadow-panel"
+                      : "app-menu-item-idle text-ink-600 hover:text-ink-900 hover:shadow-panel"
                   }`
                 }
                 end={item.to === "/"}
@@ -95,14 +95,14 @@ export function Layout() {
                   <>
                     <span
                       className={`absolute inset-y-2 left-0 w-1 rounded-r-full transition-opacity duration-200 ${
-                        isActive ? "bg-brand-500 opacity-100" : "bg-brand-300 opacity-0 group-hover:opacity-60"
+                        isActive ? "app-menu-active-bar opacity-100" : "app-menu-hover-bar opacity-0 group-hover:opacity-60"
                       }`}
                     />
                     <span
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200 ${
                         isActive
-                          ? "bg-brand-600 text-white shadow-panel"
-                          : "bg-ink-100 text-ink-500 group-hover:bg-brand-50 group-hover:text-brand-700"
+                          ? "app-menu-icon-active text-white shadow-panel"
+                          : "app-menu-icon-idle text-ink-500 group-hover:text-brand-700"
                       }`}
                     >
                       <Icon className="h-[18px] w-[18px]" />
@@ -116,7 +116,7 @@ export function Layout() {
         </nav>
       </aside>
       <main className="flex h-screen min-h-0 flex-col pl-56">
-        <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/70 bg-white/75 px-6 backdrop-blur-xl transition-colors duration-200 ease-out">
+        <header className="app-header z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b px-6 backdrop-blur-xl transition-colors duration-200 ease-out">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight text-ink-900">{page.title}</h1>
           </div>

@@ -18,6 +18,7 @@ import { Modal } from "@/components/Modal";
 import {
   InfoRow,
   SkeletonRows,
+  TablePagination,
 } from "@/components/PageScaffold";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useI18n } from "@/i18n";
@@ -50,14 +51,27 @@ const activeRunStatuses: TaskRunStatus[] = [
   "cancel_requested",
 ];
 
+const retryableRunStatuses: TaskRunStatus[] = [
+  "failed",
+  "timed_out",
+  "interrupted",
+  "cancelled",
+];
+
 function isActiveRun(status: TaskRunStatus) {
   return activeRunStatuses.includes(status);
 }
 
 function localizeSystemLog(message: string, language: string): string {
   const pairs: Array<[string, string]> = [
-    ["Browser is ready. Starting script execution.", "浏览器已就绪，开始执行脚本。"],
-    ["Page title captured and artifact written.", "页面标题已采集，产物写入完成。"],
+    [
+      "Browser is ready. Starting script execution.",
+      "浏览器已就绪，开始执行脚本。",
+    ],
+    [
+      "Page title captured and artifact written.",
+      "页面标题已采集，产物写入完成。",
+    ],
     ["Task execution timed out", "任务执行超时"],
   ];
 
@@ -96,7 +110,13 @@ export function RunsPage() {
   const [environmentId, setEnvironmentId] = useState("");
   const [selectedRun, setSelectedRun] = useState<TaskRun | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TaskRun | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [detailTab, setDetailTab] = useState<"logs" | "artifacts">("logs");
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const runStatus = useUiStore((state) => state.runStatus);
   const setRunStatus = useUiStore((state) => state.setRunStatus);
   const setHeaderActions = useUiStore((state) => state.setHeaderActions);
@@ -123,7 +143,8 @@ export function RunsPage() {
   const runsQuery = useQuery({
     queryKey: ["runs", filters],
     queryFn: () => browserApi.listRuns(filters),
-    refetchInterval: runStatus === "running" || runStatus === "queued" ? 2500 : false,
+    refetchInterval:
+      runStatus === "running" || runStatus === "queued" ? 2500 : false,
   });
 
   const logsQuery = useQuery({
@@ -166,7 +187,47 @@ export function RunsPage() {
       if (selectedRun?.id === runId) {
         setSelectedRun(null);
       }
+      setSelectedRunIds((current) => {
+        const next = new Set(current);
+        next.delete(runId);
+        return next;
+      });
       setDeleteTarget(null);
+      refreshRuns();
+    },
+  });
+
+  const bulkCancelMutation = useMutation({
+    mutationFn: async (runIds: string[]) => {
+      await Promise.all(runIds.map((runId) => browserApi.cancelRun(runId)));
+    },
+    onSuccess: refreshRuns,
+  });
+
+  const bulkRetryMutation = useMutation({
+    mutationFn: async (runIds: string[]) => {
+      await Promise.all(runIds.map((runId) => browserApi.retryRun(runId)));
+    },
+    onSuccess: () => {
+      setSelectedRunIds(new Set());
+      refreshRuns();
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: browserApi.deleteRuns,
+    onSuccess: (_result, runIds) => {
+      if (selectedRun && runIds.includes(selectedRun.id)) {
+        setSelectedRun(null);
+      }
+      setSelectedRunIds((current) => {
+        const next = new Set(current);
+        for (const runId of runIds) {
+          next.delete(runId);
+        }
+        return next;
+      });
+      setBulkDeleteOpen(false);
       refreshRuns();
     },
   });
@@ -190,18 +251,69 @@ export function RunsPage() {
     setSelectedRun(run);
   };
 
+  const toggleRunSelection = (runId: string) => {
+    setSelectedRunIds((current) => {
+      const next = new Set(current);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
+    });
+  };
+
   const taskName = (id: string) =>
     tasksQuery.data?.find((task) => task.id === id)?.name ?? id;
   const environmentName = (id: string) =>
-    environmentsQuery.data?.find((environment) => environment.id === id)?.name ??
-    id;
+    environmentsQuery.data?.find((environment) => environment.id === id)
+      ?.name ?? id;
   const runs = runsQuery.data ?? [];
   const refetchRuns = runsQuery.refetch;
+  const totalPages = Math.max(1, Math.ceil(runs.length / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * pageSize;
+  const pagedRuns = runs.slice(pageStart, pageStart + pageSize);
+  const selectedRuns = runs.filter((run) => selectedRunIds.has(run.id));
+  const selectedActiveRuns = selectedRuns.filter((run) =>
+    isActiveRun(run.status),
+  );
+  const selectedRetryableRuns = selectedRuns.filter((run) =>
+    retryableRunStatuses.includes(run.status),
+  );
+  const selectedDeletableRuns = selectedRuns.filter(
+    (run) => !isActiveRun(run.status),
+  );
+  const allPageSelected =
+    pagedRuns.length > 0 &&
+    pagedRuns.every((run) => selectedRunIds.has(run.id));
   const activeCount = runs.filter((run) => isActiveRun(run.status)).length;
-  const succeededCount = runs.filter((run) => run.status === "succeeded").length;
+  const succeededCount = runs.filter(
+    (run) => run.status === "succeeded",
+  ).length;
   const failedCount = runs.filter((run) =>
     ["failed", "timed_out", "interrupted", "cancelled"].includes(run.status),
   ).length;
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [environmentId, pageSize, runStatus, taskId]);
+
+  useEffect(() => {
+    if (pageIndex >= totalPages) {
+      setPageIndex(totalPages - 1);
+    }
+  }, [pageIndex, totalPages]);
+
+  useEffect(() => {
+    const visibleRunIds = new Set(runs.map((run) => run.id));
+    setSelectedRunIds((current) => {
+      const next = new Set(
+        [...current].filter((runId) => visibleRunIds.has(runId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [runs]);
 
   useEffect(() => {
     setHeaderActions(
@@ -246,153 +358,304 @@ export function RunsPage() {
 
   return (
     <div className="viewport-page grid-rows-[minmax(0,1fr)]">
-      <div className="scroll-panel min-h-0 min-w-0 pr-1">
-        <section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
-        <div className="panel shrink-0 p-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative min-w-[220px] flex-1">
+      <div className="h-full min-h-0 min-w-0 pr-1">
+        <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
+          <div className="panel shrink-0 p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[220px] flex-1">
+                <SelectControl
+                  leadingIcon={<Search className="h-4 w-4" />}
+                  onChange={(event) => setTaskId(event.target.value)}
+                  value={taskId}
+                >
+                  <option value="">{copy.common.allTasks}</option>
+                  {(tasksQuery.data ?? []).map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.name}
+                    </option>
+                  ))}
+                </SelectControl>
+              </div>
               <SelectControl
-                leadingIcon={<Search className="h-4 w-4" />}
-                onChange={(event) => setTaskId(event.target.value)}
-                value={taskId}
+                wrapperClassName="w-full sm:w-44"
+                onChange={(event) => setEnvironmentId(event.target.value)}
+                value={environmentId}
               >
-                <option value="">{copy.common.allTasks}</option>
-                {(tasksQuery.data ?? []).map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.name}
+                <option value="">{copy.common.allEnvironments}</option>
+                {(environmentsQuery.data ?? []).map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.name}
+                  </option>
+                ))}
+              </SelectControl>
+              <SelectControl
+                wrapperClassName="w-full sm:w-40"
+                onChange={(event) =>
+                  setRunStatus(event.target.value as TaskRunStatus | "all")
+                }
+                value={runStatus}
+              >
+                {runStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status === "all"
+                      ? copy.common.allStatuses
+                      : statusLabel(status, language)}
                   </option>
                 ))}
               </SelectControl>
             </div>
-            <SelectControl
-              wrapperClassName="w-full sm:w-44"
-              onChange={(event) => setEnvironmentId(event.target.value)}
-              value={environmentId}
-            >
-              <option value="">{copy.common.allEnvironments}</option>
-              {(environmentsQuery.data ?? []).map((environment) => (
-                <option key={environment.id} value={environment.id}>
-                  {environment.name}
-                </option>
-              ))}
-            </SelectControl>
-            <SelectControl
-              wrapperClassName="w-full sm:w-40"
-              onChange={(event) =>
-                setRunStatus(event.target.value as TaskRunStatus | "all")
-              }
-              value={runStatus}
-            >
-              {runStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status === "all" ? copy.common.allStatuses : statusLabel(status, language)}
-                </option>
-              ))}
-            </SelectControl>
-          </div>
-        </div>
 
-        {runsQuery.isLoading ? (
-          <section className="panel table-scroll">
-            <SkeletonRows rows={8} />
-          </section>
-        ) : runsQuery.isError ? (
-          <EmptyState
-            description={errorMessage(runsQuery.error)}
-            icon={<FileText className="h-5 w-5" />}
-            title={text.loadFailed}
-          />
-        ) : runs.length === 0 ? (
-          <EmptyState
-            description={text.emptyDescription}
-            icon={<FileText className="h-5 w-5" />}
-            title={text.emptyTitle}
-          />
-        ) : (
-          <section className="panel table-scroll">
-            <table className="w-full border-collapse">
-              <thead className="table-header">
-                <tr>
-                  <th className="px-4 py-3">{text.table.task}</th>
-                  <th className="px-4 py-3">{text.table.environment}</th>
-                  <th className="px-4 py-3">{copy.common.status}</th>
-                  <th className="px-4 py-3">{text.table.started}</th>
-                  <th className="px-4 py-3">{text.table.duration}</th>
-                  <th className="px-4 py-3">{text.table.error}</th>
-                  <th className="table-action-header">{copy.common.actions}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => (
-                  <tr
-                    aria-pressed={selectedRun?.id === run.id}
-                    className={`cursor-pointer outline-none transition-colors duration-150 hover:bg-ink-50 focus-visible:bg-brand-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                      selectedRun?.id === run.id ? "bg-blue-50" : ""
-                    }`}
-                    key={run.id}
-                    onClick={() => setSelectedRun(run)}
-                    onKeyDown={(event) => handleRunRowKeyDown(event, run)}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <td className="table-cell font-medium text-ink-900">
-                      {taskName(run.task_id)}
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {environmentName(run.environment_id)}
-                    </td>
-                    <td className="table-cell">
-                      <StatusBadge status={run.status} />
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {formatDateTime(run.started_at ?? run.queued_at, language)}
-                    </td>
-                    <td className="table-cell text-ink-700">
-                      {formatDuration(run.started_at, run.finished_at)}
-                    </td>
-                    <td className="table-cell max-w-xs truncate text-ink-700">
-                      {run.error_message || "-"}
-                    </td>
-                    <td className="table-action-cell">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          className="h-8"
-                          icon={<FileText className="h-4 w-4" />}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedRun(run);
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-ink-600">
+                <span className="rounded-full bg-ink-50 px-2.5 py-1">
+                  {text.bulk.selected.replace(
+                    "{{count}}",
+                    String(selectedRuns.length),
+                  )}
+                </span>
+                <Button
+                  disabled={pagedRuns.length === 0}
+                  onClick={() => {
+                    setSelectedRunIds((current) => {
+                      const next = new Set(current);
+                      for (const run of pagedRuns) {
+                        next.add(run.id);
+                      }
+                      return next;
+                    });
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  {text.bulk.selectPage}
+                </Button>
+                <Button
+                  disabled={selectedRuns.length === 0}
+                  onClick={() => setSelectedRunIds(new Set())}
+                  size="sm"
+                  variant="ghost"
+                >
+                  {text.bulk.clear}
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  disabled={
+                    selectedActiveRuns.length === 0 ||
+                    bulkCancelMutation.isPending
+                  }
+                  icon={<XCircle className="h-4 w-4" />}
+                  onClick={() =>
+                    bulkCancelMutation.mutate(
+                      selectedActiveRuns.map((run) => run.id),
+                    )
+                  }
+                  size="sm"
+                  variant="danger"
+                >
+                  {text.bulk.cancel.replace(
+                    "{{count}}",
+                    String(selectedActiveRuns.length),
+                  )}
+                </Button>
+                <Button
+                  disabled={
+                    selectedRetryableRuns.length === 0 ||
+                    bulkRetryMutation.isPending
+                  }
+                  icon={<RotateCcw className="h-4 w-4" />}
+                  onClick={() =>
+                    bulkRetryMutation.mutate(
+                      selectedRetryableRuns.map((run) => run.id),
+                    )
+                  }
+                  size="sm"
+                >
+                  {text.bulk.retry.replace(
+                    "{{count}}",
+                    String(selectedRetryableRuns.length),
+                  )}
+                </Button>
+                <Button
+                  disabled={selectedDeletableRuns.length === 0}
+                  icon={<Trash2 className="h-4 w-4" />}
+                  onClick={() => {
+                    bulkDeleteMutation.reset();
+                    setBulkDeleteOpen(true);
+                  }}
+                  size="sm"
+                  variant="danger"
+                >
+                  {text.bulk.delete.replace(
+                    "{{count}}",
+                    String(selectedDeletableRuns.length),
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {bulkCancelMutation.error ||
+            bulkRetryMutation.error ||
+            bulkDeleteMutation.error ? (
+              <div
+                className="mt-3 rounded-md bg-red-50 p-2 text-xs text-danger"
+                role="alert"
+              >
+                {errorMessage(
+                  bulkCancelMutation.error ??
+                    bulkRetryMutation.error ??
+                    bulkDeleteMutation.error,
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {runsQuery.isLoading ? (
+            <section className="panel table-scroll min-h-0">
+              <SkeletonRows rows={8} />
+            </section>
+          ) : runsQuery.isError ? (
+            <EmptyState
+              description={errorMessage(runsQuery.error)}
+              icon={<FileText className="h-5 w-5" />}
+              title={text.loadFailed}
+            />
+          ) : runs.length === 0 ? (
+            <EmptyState
+              description={text.emptyDescription}
+              icon={<FileText className="h-5 w-5" />}
+              title={text.emptyTitle}
+            />
+          ) : (
+            <section className="panel table-panel">
+              <div className="table-scroll run-table-scroll">
+                <table className="run-table border-collapse">
+                  <thead className="table-header">
+                    <tr>
+                      <th className="px-4 py-3">
+                        <input
+                          aria-label={text.bulk.selectPage}
+                          checked={allPageSelected}
+                          className="h-4 w-4 cursor-pointer rounded border-line text-brand-600 focus:ring-brand-500"
+                          onChange={(event) => {
+                            setSelectedRunIds((current) => {
+                              const next = new Set(current);
+                              for (const run of pagedRuns) {
+                                if (event.target.checked) {
+                                  next.add(run.id);
+                                } else {
+                                  next.delete(run.id);
+                                }
+                              }
+                              return next;
+                            });
                           }}
-                          variant="ghost"
-                        >
-                          {copy.common.details}
-                        </Button>
-                        <Button
-                          className="h-8"
-                          disabled={isActiveRun(run.status)}
-                          icon={<Trash2 className="h-4 w-4" />}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteRunMutation.reset();
-                            setDeleteTarget(run);
-                          }}
-                          title={
-                            isActiveRun(run.status)
-                              ? text.cancelFirst
-                              : text.deleteRun
-                          }
-                          variant="ghost"
-                        >
-                          {copy.common.delete}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        )}
-      </section>
+                          type="checkbox"
+                        />
+                      </th>
+                      <th className="px-4 py-3">{text.table.task}</th>
+                      <th className="px-4 py-3">{text.table.environment}</th>
+                      <th className="px-4 py-3">{copy.common.status}</th>
+                      <th className="px-4 py-3">{text.table.started}</th>
+                      <th className="px-4 py-3">{text.table.duration}</th>
+                      <th className="px-4 py-3">{text.table.error}</th>
+                      <th className="table-action-header">
+                        {copy.common.actions}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRuns.map((run) => (
+                      <tr
+                        aria-pressed={selectedRun?.id === run.id}
+                        className={`cursor-pointer outline-none transition-colors duration-150 hover:bg-ink-50 focus-visible:bg-brand-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+                          selectedRun?.id === run.id ? "bg-blue-50" : ""
+                        }`}
+                        key={run.id}
+                        onClick={() => setSelectedRun(run)}
+                        onKeyDown={(event) => handleRunRowKeyDown(event, run)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <td className="table-cell">
+                          <input
+                            aria-label={text.bulk.selectRun}
+                            checked={selectedRunIds.has(run.id)}
+                            className="h-4 w-4 cursor-pointer rounded border-line text-brand-600 focus:ring-brand-500"
+                            onChange={() => toggleRunSelection(run.id)}
+                            onClick={(event) => event.stopPropagation()}
+                            type="checkbox"
+                          />
+                        </td>
+                        <td className="table-cell font-medium text-ink-900">
+                          {taskName(run.task_id)}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {environmentName(run.environment_id)}
+                        </td>
+                        <td className="table-cell">
+                          <StatusBadge status={run.status} />
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {formatDateTime(
+                            run.started_at ?? run.queued_at,
+                            language,
+                          )}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {formatDuration(run.started_at, run.finished_at)}
+                        </td>
+                        <td className="table-cell text-ink-700">
+                          {run.error_message || "-"}
+                        </td>
+                        <td className="table-action-cell">
+                          <div className="flex w-[196px] flex-wrap justify-end gap-1">
+                            <Button
+                              aria-label={copy.common.details}
+                              className="h-7 px-1.5"
+                              icon={<FileText className="h-4 w-4" />}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedRun(run);
+                              }}
+                              variant="ghost"
+                            />
+                            <Button
+                              aria-label={copy.common.delete}
+                              className="h-7 px-1.5"
+                              disabled={isActiveRun(run.status)}
+                              icon={<Trash2 className="h-4 w-4" />}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                deleteRunMutation.reset();
+                                setDeleteTarget(run);
+                              }}
+                              title={
+                                isActiveRun(run.status)
+                                  ? text.cancelFirst
+                                  : text.deleteRun
+                              }
+                              variant="ghost"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination
+                labels={copy.common.pagination}
+                onPageIndexChange={setPageIndex}
+                onPageSizeChange={setPageSize}
+                pageIndex={safePageIndex}
+                pageSize={pageSize}
+                totalCount={runs.length}
+              />
+            </section>
+          )}
+        </section>
       </div>
 
       <Modal
@@ -406,7 +669,9 @@ export function RunsPage() {
             <div className="grid gap-3 rounded-lg border border-line bg-ink-50/60 p-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-ink-500">{text.runDetails}</p>
+                  <p className="text-xs font-medium text-ink-500">
+                    {text.runDetails}
+                  </p>
                   <p className="selectable mt-1 break-all text-sm font-semibold text-ink-900">
                     {selectedRun.id}
                   </p>
@@ -436,9 +701,7 @@ export function RunsPage() {
                       {text.cancelBatch}
                     </Button>
                   ) : null}
-                  {["failed", "timed_out", "interrupted", "cancelled"].includes(
-                    selectedRun.status,
-                  ) ? (
+                  {retryableRunStatuses.includes(selectedRun.status) ? (
                     <Button
                       className="h-8"
                       disabled={retryRunMutation.isPending}
@@ -452,7 +715,9 @@ export function RunsPage() {
                     className="h-8"
                     disabled={openArtifactsDirMutation.isPending}
                     icon={<FolderOpen className="h-4 w-4" />}
-                    onClick={() => openArtifactsDirMutation.mutate(selectedRun.id)}
+                    onClick={() =>
+                      openArtifactsDirMutation.mutate(selectedRun.id)
+                    }
                   >
                     {text.artifactFolder}
                   </Button>
@@ -481,7 +746,10 @@ export function RunsPage() {
                 retryRunMutation.error ||
                 openArtifactsDirMutation.error ||
                 deleteRunMutation.error) && (
-                <div className="rounded-md bg-red-50 p-2 text-xs text-danger">
+                <div
+                  className="rounded-md bg-red-50 p-2 text-xs text-danger"
+                  role="alert"
+                >
                   {errorMessage(
                     cancelRunMutation.error ??
                       cancelBatchMutation.error ??
@@ -493,14 +761,26 @@ export function RunsPage() {
               )}
 
               <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
-                <InfoRow label={copy.common.status} value={<StatusBadge status={selectedRun.status} />} />
-                <InfoRow label={copy.common.task} value={taskName(selectedRun.task_id)} />
+                <InfoRow
+                  label={copy.common.status}
+                  value={<StatusBadge status={selectedRun.status} />}
+                />
+                <InfoRow
+                  label={copy.common.task}
+                  value={taskName(selectedRun.task_id)}
+                />
                 <InfoRow
                   label={copy.common.environment}
                   value={environmentName(selectedRun.environment_id)}
                 />
-                <InfoRow label={text.info.batch} value={selectedRun.batch_id || "-"} />
-                <InfoRow label={text.info.artifacts} value={selectedRun.artifacts_dir || "-"} />
+                <InfoRow
+                  label={text.info.batch}
+                  value={selectedRun.batch_id || "-"}
+                />
+                <InfoRow
+                  label={text.info.artifacts}
+                  value={selectedRun.artifacts_dir || "-"}
+                />
               </div>
             </div>
 
@@ -532,7 +812,10 @@ export function RunsPage() {
             <div className="scroll-panel min-h-0 rounded-lg border border-line p-3">
               {detailTab === "logs" ? (
                 logsQuery.isError ? (
-                  <div className="rounded-md bg-red-50 p-3 text-sm text-danger">
+                  <div
+                    className="rounded-md bg-red-50 p-3 text-sm text-danger"
+                    role="alert"
+                  >
                     {errorMessage(logsQuery.error)}
                   </div>
                 ) : (logsQuery.data ?? []).length === 0 ? (
@@ -547,7 +830,8 @@ export function RunsPage() {
                         <div className="mb-1 flex items-center justify-between gap-3">
                           <StatusBadge status={log.level} />
                           <span className="shrink-0 text-xs text-ink-500">
-                            #{log.seq} {formatDateTime(log.created_at, language)}
+                            #{log.seq}{" "}
+                            {formatDateTime(log.created_at, language)}
                           </span>
                         </div>
                         <p className="selectable whitespace-pre-wrap text-sm text-ink-900">
@@ -579,7 +863,9 @@ export function RunsPage() {
                             className="h-7 px-2"
                             disabled={openArtifactMutation.isPending}
                             icon={<ExternalLink className="h-3.5 w-3.5" />}
-                            onClick={() => openArtifactMutation.mutate(artifact.path)}
+                            onClick={() =>
+                              openArtifactMutation.mutate(artifact.path)
+                            }
                             variant="ghost"
                           />
                         </div>
@@ -628,15 +914,82 @@ export function RunsPage() {
         title={text.deleteTitle}
         widthClass="max-w-lg"
       >
-        <p className="text-sm leading-6 text-ink-700">
-          {text.deleteBody}
-        </p>
+        <p className="text-sm leading-6 text-ink-700">{text.deleteBody}</p>
         <p className="selectable mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.id}
         </p>
         {deleteRunMutation.error ? (
-          <div className="mt-3 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+          <div
+            className="mt-3 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+            role="alert"
+          >
             {errorMessage(deleteRunMutation.error)}
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
+        footer={
+          <>
+            <Button
+              onClick={() => {
+                bulkDeleteMutation.reset();
+                setBulkDeleteOpen(false);
+              }}
+            >
+              {copy.common.cancel}
+            </Button>
+            <Button
+              disabled={bulkDeleteMutation.isPending}
+              icon={<Trash2 className="h-4 w-4" />}
+              onClick={() =>
+                bulkDeleteMutation.mutate(
+                  selectedDeletableRuns.map((run) => run.id),
+                )
+              }
+              variant="danger"
+            >
+              {text.bulk.confirmDelete.replace(
+                "{{count}}",
+                String(selectedDeletableRuns.length),
+              )}
+            </Button>
+          </>
+        }
+        onClose={() => {
+          bulkDeleteMutation.reset();
+          setBulkDeleteOpen(false);
+        }}
+        open={bulkDeleteOpen}
+        title={text.bulk.deleteTitle}
+        widthClass="max-w-lg"
+      >
+        <p className="text-sm leading-6 text-ink-700">
+          {text.bulk.deleteBody.replace(
+            "{{count}}",
+            String(selectedDeletableRuns.length),
+          )}
+        </p>
+        {selectedRuns.length !== selectedDeletableRuns.length ? (
+          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-warn">
+            {text.bulk.activeSkipped.replace(
+              "{{count}}",
+              String(selectedRuns.length - selectedDeletableRuns.length),
+            )}
+          </p>
+        ) : null}
+        <div className="mt-3 max-h-40 overflow-y-auto rounded-xl bg-ink-50 px-3 py-2 text-xs text-ink-700">
+          {selectedDeletableRuns.map((run) => (
+            <p className="selectable truncate" key={run.id}>
+              {run.id}
+            </p>
+          ))}
+        </div>
+        {bulkDeleteMutation.error ? (
+          <div
+            className="mt-3 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+            role="alert"
+          >
+            {errorMessage(bulkDeleteMutation.error)}
           </div>
         ) : null}
       </Modal>

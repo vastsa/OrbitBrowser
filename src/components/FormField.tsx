@@ -30,7 +30,7 @@ const controlClass =
   "control-focus h-9 w-full min-w-0 rounded-lg border border-line bg-white/90 px-3 text-sm text-ink-900 shadow-panel placeholder:text-ink-500 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500";
 
 const selectControlClass =
-  "control-focus h-9 w-full min-w-0 appearance-none rounded-lg border border-line bg-white/90 py-0 pr-10 text-sm text-ink-900 shadow-panel disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500";
+  "form-select-control control-focus h-9 w-full min-w-0 appearance-none rounded-lg border border-line py-0 pr-10 text-sm shadow-panel disabled:cursor-not-allowed";
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string;

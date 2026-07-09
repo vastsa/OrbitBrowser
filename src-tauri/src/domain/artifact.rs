@@ -10,3 +10,13 @@ pub struct RunArtifact {
     pub path: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RunArtifactContent {
+    pub path: String,
+    pub label: String,
+    pub kind: String,
+    pub content: String,
+    pub bytes: u64,
+    pub truncated: bool,
+}

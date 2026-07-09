@@ -42,7 +42,7 @@ export function Button({
 
   return (
     <button
-      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border font-medium transition-all duration-200 ease-out hover:-translate-y-0.5 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50 ${sizeClass[size]} ${variantClass[variant]} ${className}`}
+      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border font-medium transition-colors duration-200 ease-out active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50 ${sizeClass[size]} ${variantClass[variant]} ${className}`}
       disabled={disabled}
       title={resolvedTitle}
       type={type}

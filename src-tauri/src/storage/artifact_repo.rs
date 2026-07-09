@@ -55,6 +55,14 @@ pub fn list(db: &Db, run_id: &str) -> AppResult<Vec<RunArtifact>> {
         .map_err(AppError::from)
 }
 
+pub fn get_by_path(db: &Db, path: &str) -> AppResult<RunArtifact> {
+    let conn = db.connect()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, run_id, kind, label, path, created_at FROM run_artifacts WHERE path = ?1",
+    )?;
+    stmt.query_row([path], row_to_artifact).map_err(Into::into)
+}
+
 fn row_to_artifact(row: &Row<'_>) -> rusqlite::Result<RunArtifact> {
     Ok(RunArtifact {
         id: row.get(0)?,
