@@ -1,0 +1,127 @@
+<svg width="1440" height="900" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="g1" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1080 128) rotate(132) scale(620 520)">
+      <stop stop-color="#22C55E" stop-opacity="0.36"/>
+      <stop offset="0.42" stop-color="#0EA5E9" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g2" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 760) rotate(-36) scale(600 420)">
+      <stop stop-color="#7C3AED" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="screen" x1="140" y1="102" x2="1294" y2="784" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="177" y1="186" x2="330" y2="344" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22C55E"/>
+      <stop offset="0.48" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#22C55E" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#22C55E" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#22C55E" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="86" y="46" width="1268" height="808" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="42" stdDeviation="38" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="blur"><feGaussianBlur stdDeviation="34"/></filter>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" stroke="#334155" stroke-opacity="0.28" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1440" height="900" rx="44" fill="#020617"/>
+  <rect width="1440" height="900" rx="44" fill="url(#grid)" opacity="0.55"/>
+  <rect width="1440" height="900" rx="44" fill="url(#g1)"/>
+  <rect width="1440" height="900" rx="44" fill="url(#g2)"/>
+  <circle cx="1118" cy="184" r="150" fill="#22C55E" opacity="0.13" filter="url(#blur)"/>
+  <circle cx="308" cy="696" r="170" fill="#8B5CF6" opacity="0.14" filter="url(#blur)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="140" y="92" width="1160" height="706" rx="36" fill="url(#screen)" stroke="#1E293B" stroke-width="2"/>
+    <rect x="140" y="92" width="1160" height="70" rx="36" fill="#0B1220"/>
+    <rect x="140" y="128" width="1160" height="34" fill="#0B1220"/>
+    <circle cx="186" cy="127" r="8" fill="#EF4444"/>
+    <circle cx="214" cy="127" r="8" fill="#F59E0B"/>
+    <circle cx="242" cy="127" r="8" fill="#22C55E"/>
+    <rect x="294" y="111" width="476" height="32" rx="16" fill="#020617" stroke="#1E293B"/>
+    <text x="320" y="132" fill="#94A3B8" font-family="Inter, ui-sans-serif, system-ui" font-size="13">orbit://control-plane/environments</text>
+    <rect x="1134" y="112" width="126" height="31" rx="15.5" fill="#13291D" stroke="#14532D"/>
+    <circle cx="1155" cy="128" r="5" fill="#22C55E"/>
+    <text x="1170" y="132" fill="#BBF7D0" font-family="Inter, ui-sans-serif, system-ui" font-size="12" font-weight="700">LOCAL ONLY</text>
+
+    <rect x="140" y="162" width="260" height="636" fill="#070D19"/>
+    <rect x="400" y="162" width="1" height="636" fill="#1E293B"/>
+
+    <g transform="translate(176 206)">
+      <rect width="52" height="52" rx="18" fill="url(#brand)"/>
+      <path d="M28 10c17 16 19 34 0 52-18-17-18-36 0-52Z" fill="white" opacity="0.96" transform="scale(.72) translate(9 3)"/>
+      <text x="68" y="22" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui" font-size="18" font-weight="800">Orbit Browser</text>
+      <text x="68" y="45" fill="#94A3B8" font-family="Inter, ui-sans-serif, system-ui" font-size="12">Browser runtime lab</text>
+    </g>
+
+    <g font-family="Inter, ui-sans-serif, system-ui" font-size="14" font-weight="700">
+      <rect x="170" y="300" width="200" height="48" rx="16" fill="#0F2A1D" stroke="#166534"/>
+      <rect x="170" y="300" width="4" height="48" rx="2" fill="#22C55E"/>
+      <text x="204" y="330" fill="#BBF7D0">Environments</text>
+      <rect x="170" y="362" width="200" height="48" rx="16" fill="#0F172A" stroke="#1E293B"/>
+      <text x="204" y="392" fill="#CBD5E1">Automation Tasks</text>
+      <rect x="170" y="424" width="200" height="48" rx="16" fill="#0F172A" stroke="#1E293B"/>
+      <text x="204" y="454" fill="#CBD5E1">Run History</text>
+      <rect x="170" y="486" width="200" height="48" rx="16" fill="#0F172A" stroke="#1E293B"/>
+      <text x="204" y="516" fill="#CBD5E1">MCP Agent</text>
+      <rect x="170" y="548" width="200" height="48" rx="16" fill="#0F172A" stroke="#1E293B"/>
+      <text x="204" y="578" fill="#CBD5E1">Diagnostics</text>
+    </g>
+
+    <g transform="translate(444 206)">
+      <text x="0" y="0" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui" font-size="46" font-weight="900" letter-spacing="-1.4">Operate browser fleets</text>
+      <text x="0" y="54" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui" font-size="46" font-weight="900" letter-spacing="-1.4">from one local cockpit.</text>
+      <text x="0" y="92" fill="#94A3B8" font-family="Inter, ui-sans-serif, system-ui" font-size="16">Isolated profiles · Proxies · JavaScript tasks · Artifacts · MCP</text>
+      <rect x="0" y="124" width="168" height="44" rx="22" fill="#22C55E"/>
+      <text x="31" y="152" fill="#052E16" font-family="Inter, ui-sans-serif, system-ui" font-size="14" font-weight="900">pnpm tauri:dev</text>
+      <rect x="184" y="124" width="144" height="44" rx="22" fill="#0F172A" stroke="#334155"/>
+      <text x="218" y="152" fill="#E2E8F0" font-family="Inter, ui-sans-serif, system-ui" font-size="14" font-weight="800">View docs</text>
+
+      <g transform="translate(0 214)">
+        <rect width="804" height="306" rx="28" fill="#08111F" stroke="#1E293B"/>
+        <rect x="24" y="24" width="756" height="46" rx="18" fill="#0F172A"/>
+        <text x="48" y="53" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui" font-size="15" font-weight="800">Live environment matrix</text>
+        <rect x="619" y="33" width="132" height="28" rx="14" fill="#13291D" stroke="#14532D"/>
+        <text x="642" y="52" fill="#BBF7D0" font-family="Inter, ui-sans-serif, system-ui" font-size="12" font-weight="800">12 profiles online</text>
+
+        <g font-family="Inter, ui-sans-serif, system-ui" font-size="13">
+          <rect x="24" y="92" width="756" height="58" rx="18" fill="#0B1220" stroke="#1E293B"/>
+          <circle cx="56" cy="121" r="12" fill="#22C55E"/>
+          <text x="84" y="116" fill="#F8FAFC" font-weight="800">US Checkout QA</text>
+          <text x="84" y="136" fill="#94A3B8">Chrome · SOCKS5 · America/New_York · 1280×800</text>
+          <rect x="545" y="108" width="66" height="26" rx="13" fill="#064E3B"/>
+          <text x="561" y="126" fill="#A7F3D0" font-size="12" font-weight="800">Ready</text>
+          <rect x="626" y="108" width="50" height="26" rx="13" fill="#1D4ED8"/>
+          <text x="641" y="126" fill="#DBEAFE" font-size="12" font-weight="800">Run</text>
+          <path d="M700 121h42" stroke="url(#line)" stroke-width="3" stroke-linecap="round"/>
+
+          <rect x="24" y="164" width="756" height="58" rx="18" fill="#0B1220" stroke="#1E293B"/>
+          <circle cx="56" cy="193" r="12" fill="#38BDF8"/>
+          <text x="84" y="188" fill="#F8FAFC" font-weight="800">Tokyo Content Bot</text>
+          <text x="84" y="208" fill="#94A3B8">Edge · HTTP proxy · Asia/Tokyo · artifacts enabled</text>
+          <rect x="545" y="180" width="83" height="26" rx="13" fill="#0C4A6E"/>
+          <text x="563" y="198" fill="#BAE6FD" font-size="12" font-weight="800">Running</text>
+          <rect x="644" y="180" width="58" height="26" rx="13" fill="#312E81"/>
+          <text x="661" y="198" fill="#DDD6FE" font-size="12" font-weight="800">CDP</text>
+          <path d="M722 193h28" stroke="url(#line)" stroke-width="3" stroke-linecap="round"/>
+
+          <rect x="24" y="236" width="756" height="46" rx="18" fill="#0B1220" stroke="#1E293B"/>
+          <circle cx="56" cy="259" r="12" fill="#A78BFA"/>
+          <text x="84" y="264" fill="#F8FAFC" font-weight="800">EU Monitoring Pool</text>
+          <rect x="545" y="246" width="80" height="26" rx="13" fill="#422006"/>
+          <text x="563" y="264" fill="#FDE68A" font-size="12" font-weight="800">Queued</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <text x="720" y="852" fill="#64748B" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui" font-size="15">Built with Tauri 2 · React · Rust · SQLite · Chrome DevTools Protocol · MCP</text>
+</svg>

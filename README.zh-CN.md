@@ -1,46 +1,176 @@
-# Orbit Browser
+<div align="center">
+  <img src="docs/assets/orbit-browser-hero.svg" alt="Orbit Browser 产品预览" width="100%" />
 
-语言：[English](README.md) | 简体中文
+  <h1>Orbit Browser</h1>
 
-Orbit Browser 是一个本地浏览器运行时编排器，用于管理隔离的
-Chrome/Chromium Profile、代理、自动化任务和运行产物。
+  <p>
+    <strong>在一个本地驾驶舱里，管理你的隔离浏览器舰队。</strong>
+  </p>
 
-它基于 Tauri 2、React、TypeScript 和 Rust 构建，适合需要在本机管理浏览器
-环境、稳定运行可复用自动化脚本、保存日志并检查运行产物的场景。
+  <p>
+    Profile、代理、JavaScript 自动化、运行产物和 MCP 工具，全部串联在一个快速桌面应用中。
+  </p>
 
-## 当前状态
+  <p>
+    <a href="README.md">English</a>
+    ·
+    <a href="docs/zh-CN/architecture.md">架构设计</a>
+    ·
+    <a href="docs/zh-CN/automation-api.md">自动化 API</a>
+    ·
+    <a href="docs/zh-CN/mcp-api.md">MCP API</a>
+  </p>
 
-项目处于早期可用阶段，核心链路已经打通：
+  <p>
+    <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" />
+    <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=0F172A" />
+    <img alt="Rust" src="https://img.shields.io/badge/Rust-Core-000000?style=for-the-badge&logo=rust&logoColor=white" />
+    <img alt="SQLite" src="https://img.shields.io/badge/SQLite-Local-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  </p>
+</div>
 
-- 本地桌面端可运行。
-- 支持快速开始流程，以及环境、任务、运行记录、设置和诊断中心。
-- 支持 Chrome/Chromium/Edge 自动检测、全局 Chrome 路径持久化和单环境路径覆盖。
-- 支持隔离 Profile、代理配置、代理认证扩展和运行产物管理。
-- 支持 MCP stdio server，外部 agent 或工具可以检查/管理环境、任务、运行记录和浏览器页面。
-- 支持 GitHub Actions 在 tag 上自动打包 macOS、Windows 和 Linux release。
+---
 
-发布工作流包含必需的 macOS、Windows x64 和 Linux x64 打包任务。Windows arm64
-和 Linux arm64 仍是实验性任务，失败时不会阻塞最终 Release 发布。
+## 为什么需要 Orbit Browser？
 
-## 功能特性
+浏览器自动化很容易变成一堆难以维护的脚本、临时 Profile、代理参数、截图、过期状态和散落日志。
 
-- 多浏览器环境管理：Profile、语言、时区、窗口尺寸、启动页和标签。
-- 代理支持：HTTP、HTTPS、SOCKS4、SOCKS5，以及带账号密码的代理认证。
-- 本地任务队列：单环境/多环境运行、并发控制、取消、重试和失败记录。
-- 受控脚本运行时：通过 `deno_core` 暴露 `page`、`log`、`run`、`env`、`sleep`。
-- 运行产物：保存截图、JSON、文本产物，并在 UI 中查看和打开目录。
-- 本地存储：SQLite 保存环境、任务、运行记录、日志和诊断状态。
-- 恢复能力：启动时恢复 queued batch，清理失效 session 和临时文件。
-- 诊断能力：Chrome 检测、CDP 检查、运行时计数、数据目录占用、失效 session
-  清理、临时文件清理和最近代理测试状态。
-- MCP 集成：应用二进制使用 `--mcp` 启动时，通过 stdio 暴露本地 Orbit 工具。
+**Orbit Browser 把这些混乱收束成一个本地桌面控制台。**
+
+你可以创建隔离浏览器环境，绑定代理和运行时指纹，执行可复用的 JavaScript 任务，查看日志与产物，并通过 MCP 将同一套能力开放给本地 Agent。
+
+```text
+[环境] → [Chrome Profile + 代理 + 语言地区 + 时区]
+  │
+  ├── 启动 / 停止 / 恢复
+  ├── 执行自动化任务
+  └── 收集日志、截图、JSON、文本产物
+```
+
+## 一眼看懂
+
+<table>
+  <tr>
+    <td><strong>运行方式</strong></td>
+    <td>本地 Tauri 桌面应用，底层由 Rust、SQLite 和 Chrome DevTools Protocol 驱动。</td>
+  </tr>
+  <tr>
+    <td><strong>控制台</strong></td>
+    <td>统一管理环境、任务、运行记录、诊断、设置和 MCP 入口。</td>
+  </tr>
+  <tr>
+    <td><strong>自动化</strong></td>
+    <td>通过受控 JavaScript Runtime 执行页面操作、日志记录、截图和产物输出。</td>
+  </tr>
+  <tr>
+    <td><strong>适合场景</strong></td>
+    <td>QA 浏览器池、代理工作流、采集流水线、监控任务、本地 AI Agent 浏览器执行。</td>
+  </tr>
+</table>
+
+## 核心亮点
+
+- **隔离浏览器集群**  
+  管理 Chrome、Chromium 或 Edge Profile。每个环境都可以拥有独立存储、窗口尺寸、语言地区、时区、地理位置、标签、分组和启动参数。
+
+- **代理优先的工作流**  
+  支持 HTTP、HTTPS、SOCKS4、SOCKS5、代理认证、绕过列表，以及按环境执行代理连通性检查。
+
+- **可复用任务编排**  
+  保存 JavaScript 自动化任务，批量运行到多个环境，控制并发，失败重试，并可取消运行中的批次。
+
+- **完整可追溯产物**  
+  每次运行都会记录日志、截图、JSON、文本输出、状态、耗时和本地产物路径。
+
+- **面向 Agent 的 MCP Server**  
+  Orbit 可以作为本地 stdio MCP 服务运行，让 Agent 客户端管理环境、操作页面、执行任务、读取运行记录和产物。
+
+- **Local-first 设计**  
+  Profile、运行记录、日志、设置和产物都保存在本机。
+
+## 适合用来做什么？
+
+- 多账号 QA 与回归测试浏览器池
+- 基于代理和地区的浏览工作流
+- 可复用网页采集、监控和截图任务
+- AI Agent 的本地浏览器执行底座
+- 登录态检查、页面巡检、截图归档流水线
+- 不想直接维护 Chrome 进程和 CDP 细节的桌面自动化
+
+## 工作流
+
+<img src="docs/assets/orbit-browser-workflow.svg" alt="Orbit Browser 工作流" width="100%" />
+
+## 能力地图
+
+```text
+Orbit Browser
+├── 浏览器环境
+│   ├── 隔离 Chrome / Chromium / Edge Profile
+│   ├── 代理、Locale、Timezone、Viewport、地理位置
+│   └── 启动、停止、重启、恢复、诊断
+├── 自动化任务
+│   ├── 受控 JavaScript Runtime
+│   ├── 多环境批量执行
+│   └── 并发、超时、重试、取消
+├── 运行证据
+│   ├── 日志、状态、耗时、重试次数
+│   ├── 截图、JSON 输出、文本文件
+│   └── 本地产物目录
+└── Agent 接口
+    ├── MCP stdio server
+    ├── 页面跳转、JS 执行、截图
+    └── 环境 / 任务 / 运行记录读取
+```
+
+## 产品使用路径
+
+### 1. 创建浏览器环境
+
+为不同账号、地区、项目或任务创建独立环境。每个环境都可以配置 Profile、代理、Locale、Timezone、Viewport、启动地址和运行参数。
+
+### 2. 编写并运行自动化任务
+
+任务脚本运行在受控 JavaScript Runtime 中，默认提供 `page`、`log`、`run`、`env` 和 `sleep` 等全局对象。
+
+```js
+await page.goto("https://example.com", { waitUntil: "load" });
+const title = await page.title();
+log.info(`页面标题：${title}`);
+await page.screenshot("home");
+await run.outputJson("page-title", { title });
+```
+
+### 3. 查看每一次运行
+
+运行记录包含状态、时间、日志、截图、JSON 输出、文本输出和产物目录。失败后可重试，同时保留历史执行轨迹。
+
+### 4. 接入本地 Agent
+
+将桌面二进制作为 MCP stdio server 启动：
+
+```bash
+orbit-browser --mcp
+```
+
+Agent 客户端即可调用 Orbit 工具，完成环境列表读取、浏览器启动、页面跳转、JS 执行、截图、任务运行和产物读取。
 
 ## 技术栈
 
-- Desktop：Tauri 2
-- Frontend：React 18、TypeScript、Vite、Tailwind CSS
-- Runtime：Rust、SQLite、Chrome DevTools Protocol、deno_core
-- Package manager：pnpm
+- **桌面容器**：Tauri 2
+- **前端**：React 18、TypeScript、Vite、Tailwind CSS
+- **本地核心**：Rust、SQLite、Chrome DevTools Protocol、`deno_core`
+- **自动化接口**：受控 JavaScript Runtime + MCP stdio server
+- **包管理器**：pnpm
+
+## 30 秒启动
+
+```bash
+pnpm install
+pnpm tauri:dev
+```
+
+然后创建环境、保存任务、选择目标环境并运行。
 
 ## 快速开始
 
@@ -50,9 +180,9 @@ Chrome/Chromium Profile、代理、自动化任务和运行产物。
 - pnpm 10+
 - Rust stable
 - Chrome、Chromium 或 Edge
-- Tauri 2 对应平台依赖
+- Tauri 2 所需平台依赖
 
-Linux 依赖可参考 `.github/workflows/ci.yml` 中的 apt 安装步骤。
+Linux 依赖可参考 GitHub Actions workflow。
 
 ### 安装依赖
 
@@ -60,113 +190,85 @@ Linux 依赖可参考 `.github/workflows/ci.yml` 中的 apt 安装步骤。
 pnpm install
 ```
 
-### 本地开发
+### 启动桌面应用
 
 ```bash
 pnpm tauri:dev
 ```
 
-### 构建前端
+### 构建
 
 ```bash
 pnpm build
+pnpm tauri:build
 ```
 
-### 运行测试
+### 测试
 
 ```bash
 pnpm test:rust
 ```
 
-浏览器真实启动 smoke 默认被标记为 ignored，需要本机存在可启动的
-Chrome/Chromium：
+修改 Chrome 启动或 CDP 行为时，建议执行被忽略的浏览器运行时冒烟测试：
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml browser_runtime_smoke_executes_js_task -- --ignored --nocapture
 ```
 
-### 完整检查
+### 完整校验
 
 ```bash
 pnpm check
 ```
 
-### MCP Server
-
-桌面端二进制可以作为本地 MCP stdio server 启动：
-
-```bash
-orbit-browser --mcp
-```
-
-MCP server 会暴露环境和任务列表、环境启动/停止、任务保存/运行、运行记录/日志/产物读取、
-浏览器页面导航、页面上下文读取、JavaScript 执行和截图等工具。它使用与桌面应用相同的
-本地 SQLite 数据目录。
-
-完整工具列表见 [MCP API](docs/zh-CN/mcp-api.md)。
-
 ## 项目结构
 
 ```text
-├── src/                    React/Tailwind 管理界面
-├── src-tauri/              Rust/Tauri 本地核心、SQLite、Chrome 生命周期
-├── docs/                   架构、脚本 API 和 release 文档
+├── src/                    React/Tailwind 桌面 UI
+├── src-tauri/              Rust/Tauri 核心、SQLite、Chrome 生命周期、队列
+├── docs/                   架构、自动化、MCP 和发布文档
 ├── public/                 Web 静态资源
-├── .github/workflows/      GitHub Actions 构建、测试和 release 配置
-├── CHANGELOG.md            版本变更记录
-├── package.json            前端、Tauri 和检查命令
-└── README.md               项目入口文档
+├── .github/workflows/      CI、校验和发布打包
+├── CHANGELOG.md            版本记录
+└── README.md               项目介绍
 ```
 
-## 自动化脚本 API
+## 文档入口
 
-任务脚本运行在受控 JavaScript runtime 中，默认暴露 `page`、`log`、`run`、
-`env` 和 `sleep`。也可以通过 `orbit.page`、`orbit.log` 等命名空间访问。
-
-```js
-await page.goto("https://example.com", { waitUntil: "load" });
-const title = await page.title();
-log.info(`页面标题: ${title}`);
-await run.outputJson("title", { title });
-```
-
-更多细节见 [自动化 API](docs/zh-CN/automation-api.md)。
-
-## GitHub Actions Release
-
-普通分支和 PR 会自动运行构建与测试。推送 `vX.Y.Z` tag 时会触发 release：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-默认 pipeline 会：
-
-1. 运行 `pnpm build` 和 Rust 测试。
-2. 创建或更新 draft GitHub Release。
-3. 在 macOS、Windows 和 Linux runner 上构建 Tauri bundle。
-4. 上传 Release assets 和匹配的 workflow artifacts。
-5. 所有必需打包任务通过后发布 draft Release。
-
-完整说明见 [Release 流程](docs/zh-CN/release.md)。
+- [架构设计](docs/zh-CN/architecture.md)
+- [自动化 API](docs/zh-CN/automation-api.md)
+- [MCP API](docs/zh-CN/mcp-api.md)
+- [发布流程](docs/zh-CN/release.md)
+- [贡献指南](CONTRIBUTING.zh-CN.md)
+- [安全策略](SECURITY.zh-CN.md)
 
 ## 数据与安全
 
-Orbit Browser 只在本机运行，数据默认写入系统应用数据目录。不要提交：
+Orbit Browser 会把本地应用数据写入系统 app-data 目录。请不要提交以下运行时文件：
 
 - 浏览器 Profile
-- Cookie 和 storage state
-- 代理账号密码
+- Cookies 与 storage state
+- 代理账号和密钥
 - 任务截图和运行产物
 - SQLite 数据库
 - 本地 `.env` 文件
 
-更多说明：
+## 发布说明
 
-- [贡献指南](CONTRIBUTING.zh-CN.md)
-- [安全策略](SECURITY.zh-CN.md)
-- [架构说明](docs/zh-CN/architecture.md)
+推送版本标签后，Release workflow 会构建 macOS、Windows 和 Linux 桌面安装包。
+
+```bash
+git tag v0.3.2
+git push origin v0.3.2
+```
+
+完整流程见 [发布流程](docs/zh-CN/release.md)。
+
+## 当前状态
+
+Orbit Browser 处于早期可用阶段，但核心产品闭环已经可用：创建环境、启动浏览器、执行任务、查看运行证据，并通过 MCP 暴露给本地 Agent。
+
+桌面主流程、本地存储、Chrome 生命周期、任务队列、运行产物、诊断中心和 MCP Server 已完成串联。
 
 ## License
 

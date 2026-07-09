@@ -1,51 +1,191 @@
-# Orbit Browser
+<div align="center">
+  <img src="docs/assets/orbit-browser-hero.svg" alt="Orbit Browser preview" width="100%" />
 
-Language: English | [简体中文](README.zh-CN.md)
+  <h1>Orbit Browser</h1>
 
-Orbit Browser is a local browser runtime orchestrator for isolated
-Chrome/Chromium profiles, proxies, automation tasks, and run artifacts.
+  <p>
+    <strong>Operate isolated browser fleets from one local cockpit.</strong>
+  </p>
 
-It is built with Tauri 2, React, TypeScript, and Rust for local workflows that
-need a stable desktop control plane for browser environments, repeatable
-automation scripts, and inspectable run history.
+  <p>
+    Profiles, proxies, JavaScript automation, run artifacts, and MCP tools — stitched together in a fast desktop app.
+  </p>
 
-## Current Status
+  <p>
+    <a href="README.zh-CN.md">简体中文</a>
+    ·
+    <a href="docs/architecture.md">Architecture</a>
+    ·
+    <a href="docs/automation-api.md">Automation API</a>
+    ·
+    <a href="docs/mcp-api.md">MCP API</a>
+  </p>
 
-The project is in an early usable stage. The core workflow is already wired:
+  <p>
+    <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" />
+    <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=0F172A" />
+    <img alt="Rust" src="https://img.shields.io/badge/Rust-Core-000000?style=for-the-badge&logo=rust&logoColor=white" />
+    <img alt="SQLite" src="https://img.shields.io/badge/SQLite-Local-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  </p>
+</div>
 
-- Desktop app startup and local runtime orchestration.
-- Quick Start flow plus environment, task, run history, settings, and diagnostics views.
-- Automatic Chrome/Chromium/Edge detection, persisted global Chrome path, and
-  per-environment path override.
-- Isolated profiles, proxy configuration, proxy-auth extension generation, and artifact management.
-- MCP stdio server for external agents and tools to inspect/manage
-  environments, tasks, runs, and browser pages.
-- GitHub Actions release packaging for macOS, Windows, and Linux on version tags.
+---
 
-The release workflow includes required macOS, Windows x64, and Linux x64
-package jobs. Windows arm64 and Linux arm64 jobs are currently experimental and
-may fail without blocking release publication.
+## Why Orbit Browser?
 
-## Features
+Modern browser automation often becomes a pile of scripts, temporary profiles,
+proxy flags, screenshots, stale state, and scattered logs.
 
-- Multi-environment browser management: profile, locale, timezone, viewport, start URL, and tags.
-- Proxy support: HTTP, HTTPS, SOCKS4, SOCKS5, and username/password proxy authentication.
-- Local task queue: single or multi-environment runs, concurrency control, cancellation, retry, and failure records.
-- Controlled JavaScript runtime: `deno_core` exposes `page`, `log`, `run`, `env`, and `sleep`.
-- Run artifacts: screenshots, JSON, text files, and local artifact-folder access from the UI.
-- Local storage: SQLite records environments, tasks, runs, logs, artifacts, settings, and diagnostics state.
-- Recovery: restores queued batches on startup and cleans stale sessions and temporary files.
-- Diagnostics: Chrome detection, CDP checks, runtime counters, data-size metrics,
-  stale-session cleanup, temporary-file cleanup, and latest proxy-test status.
-- MCP integration: run the app binary with `--mcp` to expose Orbit tools over
-  stdio for local agent clients.
+**Orbit Browser turns that chaos into a local desktop control plane.**
+
+Create isolated browser environments, bind proxies and runtime fingerprints,
+run repeatable JavaScript tasks, inspect logs and artifacts, and expose the same
+capabilities to local agents through MCP — all backed by local SQLite storage.
+
+```text
+[Environment] → [Chrome profile + proxy + locale + timezone]
+      │
+      ├── start / stop / recover
+      ├── run automation tasks
+      └── collect logs, screenshots, JSON, text artifacts
+```
+
+## At a Glance
+
+<table>
+  <tr>
+    <td><strong>Runtime</strong></td>
+    <td>Local Tauri desktop app backed by Rust, SQLite, and Chrome DevTools Protocol.</td>
+  </tr>
+  <tr>
+    <td><strong>Control plane</strong></td>
+    <td>Manage environments, tasks, run history, diagnostics, settings, and MCP access.</td>
+  </tr>
+  <tr>
+    <td><strong>Automation</strong></td>
+    <td>Run controlled JavaScript tasks with page APIs, logging, screenshots, and artifacts.</td>
+  </tr>
+  <tr>
+    <td><strong>Best fit</strong></td>
+    <td>QA labs, proxy workflows, scraping pipelines, monitoring, and local AI-agent browsing.</td>
+  </tr>
+</table>
+
+## Highlights
+
+- **Isolated browser fleets**  
+  Manage Chrome, Chromium, or Edge profiles with independent storage, viewport,
+  locale, timezone, geolocation, tags, groups, and launch options.
+
+- **Proxy-first workflow**  
+  Configure HTTP, HTTPS, SOCKS4, SOCKS5, proxy authentication, bypass lists, and
+  per-environment proxy checks.
+
+- **Repeatable task execution**  
+  Save JavaScript automation tasks, run them across one or many environments,
+  control concurrency, retry failures, and cancel active batches.
+
+- **Inspectable local artifacts**  
+  Capture screenshots, JSON, text outputs, logs, run metadata, and open artifact
+  folders directly from the desktop UI.
+
+- **Agent-ready MCP server**  
+  Launch Orbit as a local stdio MCP server and let agent clients inspect
+  environments, operate browser pages, execute tasks, and read artifacts.
+
+- **Local-first by design**  
+  Runtime state, profiles, runs, logs, and settings stay on your machine.
+
+## What You Can Build With It
+
+- Multi-account QA and regression browser labs
+- Proxy and region-specific browsing workflows
+- Reusable scraping and monitoring tasks
+- Local browser automation for AI agents
+- Repeatable login-state, screenshot, and page-inspection pipelines
+- Desktop-controlled CDP automation without managing raw Chrome processes
+
+## Workflow
+
+<img src="docs/assets/orbit-browser-workflow.svg" alt="Orbit Browser workflow" width="100%" />
+
+## Capability Map
+
+```text
+Orbit Browser
+├── Browser environments
+│   ├── Isolated Chrome / Chromium / Edge profiles
+│   ├── Proxy, locale, timezone, viewport, geolocation
+│   └── Start, stop, restart, recover, diagnose
+├── Automation tasks
+│   ├── Controlled JavaScript runtime
+│   ├── Multi-environment batch execution
+│   └── Concurrency, timeout, retry, cancellation
+├── Run evidence
+│   ├── Logs, statuses, timings, attempts
+│   ├── Screenshots, JSON outputs, text files
+│   └── Local artifact folders
+└── Agent interface
+    ├── MCP stdio server
+    ├── Page navigation, evaluation, screenshots
+    └── Environment/task/run inspection
+```
+
+## Product Tour
+
+### 1. Create browser environments
+
+Define dedicated browser contexts for different accounts, regions, projects, or
+workflows. Each environment can own its profile, proxy, locale, timezone,
+viewport, start URL, and runtime options.
+
+### 2. Run automation tasks
+
+Write concise scripts with controlled globals such as `page`, `log`, `run`,
+`env`, and `sleep`.
+
+```js
+await page.goto("https://example.com", { waitUntil: "load" });
+const title = await page.title();
+log.info(`Page title: ${title}`);
+await page.screenshot("home");
+await run.outputJson("page-title", { title });
+```
+
+### 3. Inspect every run
+
+Each task run records status, timing, logs, screenshots, JSON outputs, text
+outputs, and artifact locations. Failed runs can be retried without losing the
+previous execution trail.
+
+### 4. Connect local agents
+
+Run the desktop binary as an MCP stdio server:
+
+```bash
+orbit-browser --mcp
+```
+
+Agent clients can then call Orbit tools to list environments, start browsers,
+navigate pages, evaluate JavaScript, capture screenshots, run saved tasks, and
+read run artifacts.
 
 ## Tech Stack
 
-- Desktop: Tauri 2
-- Frontend: React 18, TypeScript, Vite, Tailwind CSS
-- Runtime: Rust, SQLite, Chrome DevTools Protocol, deno_core
-- Package manager: pnpm
+- **Desktop shell**: Tauri 2
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Runtime core**: Rust, SQLite, Chrome DevTools Protocol, `deno_core`
+- **Automation surface**: Controlled JavaScript runtime + MCP stdio server
+- **Package manager**: pnpm
+
+## 30-Second Start
+
+```bash
+pnpm install
+pnpm tauri:dev
+```
+
+Then create an environment, save a task, choose target environments, and run.
 
 ## Quick Start
 
@@ -57,112 +197,71 @@ may fail without blocking release publication.
 - Chrome, Chromium, or Edge
 - Platform dependencies required by Tauri 2
 
-Linux dependencies are listed in the `.github/workflows/ci.yml` apt step.
+Linux dependencies are listed in the GitHub Actions workflow.
 
-### Install Dependencies
+### Install
 
 ```bash
 pnpm install
 ```
 
-### Run Locally
+### Run the desktop app
 
 ```bash
 pnpm tauri:dev
 ```
 
-### Build Frontend
+### Build
 
 ```bash
 pnpm build
+pnpm tauri:build
 ```
 
-### Run Tests
+### Test
 
 ```bash
 pnpm test:rust
 ```
 
-The browser-launch smoke test is ignored by default and requires a local
-Chrome/Chromium executable:
+Run the ignored browser runtime smoke test when changing Chrome launch or CDP
+behavior:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml browser_runtime_smoke_executes_js_task -- --ignored --nocapture
 ```
 
-### Full Check
+### Full verification
 
 ```bash
 pnpm check
 ```
 
-### MCP Server
-
-The desktop binary can run as a local MCP stdio server:
-
-```bash
-orbit-browser --mcp
-```
-
-The server exposes tools for listing environments and tasks, starting/stopping
-environments, saving/running tasks, reading runs/logs/artifacts, navigating
-browser pages, reading page context, evaluating JavaScript, and capturing
-screenshots. It uses the same local SQLite data directory as the desktop app.
-
-See [MCP API](docs/mcp-api.md) for the full tool list.
-
-## Project Structure
+## Repository Layout
 
 ```text
-├── src/                    React/Tailwind management UI
-├── src-tauri/              Rust/Tauri local core, SQLite, Chrome lifecycle
-├── docs/                   Architecture, script API, and release notes
-├── public/                 Web static assets
-├── .github/workflows/      GitHub Actions build, test, and release config
+├── src/                    React/Tailwind desktop UI
+├── src-tauri/              Rust/Tauri core, SQLite, Chrome lifecycle, queue
+├── docs/                   Architecture, automation, MCP, and release notes
+├── public/                 Static web assets
+├── .github/workflows/      CI, verification, and release packaging
 ├── CHANGELOG.md            Release history
-├── package.json            Frontend, Tauri, and verification commands
-└── README.md               Project entry documentation
+└── README.md               Project overview
 ```
 
-## Automation Script API
+## Documentation
 
-Task scripts run inside a controlled JavaScript runtime. The default globals are
-`page`, `log`, `run`, `env`, and `sleep`. They are also available under the
-`orbit` namespace.
-
-```js
-await page.goto("https://example.com", { waitUntil: "load" });
-const title = await page.title();
-log.info(`Page title: ${title}`);
-await run.outputJson("title", { title });
-```
-
-See [Automation API](docs/automation-api.md) for details.
-
-## GitHub Actions Release
-
-Regular branches and pull requests run build and test verification. Pushing a
-`vX.Y.Z` tag triggers a release:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The default pipeline:
-
-1. Runs `pnpm build` and Rust tests.
-2. Creates or updates a draft GitHub Release.
-3. Builds Tauri bundles on macOS, Windows, and Linux runners.
-4. Uploads release assets and matching workflow artifacts.
-5. Publishes the draft Release after all required package jobs pass.
-
-See [Release Process](docs/release.md) for the full flow.
+- [Architecture](docs/architecture.md)
+- [Automation API](docs/automation-api.md)
+- [MCP API](docs/mcp-api.md)
+- [Release Process](docs/release.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
 
 ## Data And Security
 
-Orbit Browser runs locally and stores data in the system application-data
-directory. Do not commit:
+Orbit Browser stores local application data in the system app-data directory.
+Do not commit generated runtime files, including:
 
 - Browser profiles
 - Cookies and storage state
@@ -171,22 +270,23 @@ directory. Do not commit:
 - SQLite databases
 - Local `.env` files
 
-For open-source collaboration and security reporting, see:
+## Release Notes
 
-- [Contributing Guide](CONTRIBUTING.md)
-- [Security Policy](SECURITY.md)
-- [Architecture](docs/architecture.md)
+The release workflow builds desktop bundles for macOS, Windows, and Linux when a
+version tag is pushed.
 
-## Pre-Publication Checklist
+```bash
+git tag v0.3.2
+git push origin v0.3.2
+```
 
-Before making the repository public:
+See [Release Process](docs/release.md) for the full packaging flow.
 
-- `pnpm build` passes.
-- `pnpm test:rust` passes.
-- GitHub Actions has passed at least one verify job in the target repository.
-- Versions in `package.json`, `src-tauri/Cargo.toml`, and
-  `src-tauri/tauri.conf.json` are aligned.
-- A new Git remote is configured and old remote metadata is removed.
+## Status
+
+Orbit Browser is in an early usable stage, but the product loop is already useful: create environments, launch browsers, run tasks, inspect evidence, and expose it all through MCP.
+
+The core desktop workflow, local storage, Chrome lifecycle, task queue, run artifacts, diagnostics, and MCP server are already wired.
 
 ## License
 
