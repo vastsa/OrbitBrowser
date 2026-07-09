@@ -8,7 +8,7 @@ fn main() {
     {
         unsafe {
             let console_window = GetConsoleWindow();
-            if console_window != 0 {
+            if !console_window.is_null() {
                 ShowWindow(console_window, 0);
                 FreeConsole();
             }
