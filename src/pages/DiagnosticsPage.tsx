@@ -4,13 +4,14 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import { Button } from "@/components/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useI18n } from "@/i18n";
 import { errorMessage, formatBytes, formatDateTime } from "@/lib/format";
 import { browserApi } from "@/lib/tauri";
+import { useUiStore } from "@/stores/uiStore";
 
 export function DiagnosticsPage() {
   const queryClient = useQueryClient();
@@ -42,36 +43,47 @@ export function DiagnosticsPage() {
   });
 
   const diagnostics = diagnosticsQuery.data;
+  const detectChrome = detectChromeMutation.mutate;
+  const refetchDiagnostics = diagnosticsQuery.refetch;
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
+
+  useEffect(() => {
+    setHeaderActions(
+      <>
+        <Button
+          icon={<Search className="h-4 w-4" />}
+          onClick={() => detectChrome()}
+        >
+          {text.detectChrome}
+        </Button>
+        <Button
+          icon={<RefreshCw className="h-4 w-4" />}
+          onClick={() => void refetchDiagnostics()}
+        >
+          {copy.common.refresh}
+        </Button>
+      </>,
+    );
+
+    return () => setHeaderActions(undefined);
+  }, [
+    copy.common.refresh,
+    detectChrome,
+    refetchDiagnostics,
+    setHeaderActions,
+    text.detectChrome,
+  ]);
 
   return (
     <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
       <section className="panel shrink-0 p-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink-900">{text.overview}</h2>
-            <p className="mt-1 text-sm text-ink-500">
-              {diagnostics?.generated_at
-                ? format(text.generatedAt, {
-                    time: formatDateTime(diagnostics.generated_at, language),
-                  })
-                : text.waiting}
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button
-              icon={<Search className="h-4 w-4" />}
-              onClick={() => detectChromeMutation.mutate()}
-            >
-              {text.detectChrome}
-            </Button>
-            <Button
-              icon={<RefreshCw className="h-4 w-4" />}
-              onClick={() => void diagnosticsQuery.refetch()}
-            >
-              {copy.common.refresh}
-            </Button>
-          </div>
-        </div>
+        <p className="text-sm text-ink-500">
+          {diagnostics?.generated_at
+            ? format(text.generatedAt, {
+                time: formatDateTime(diagnostics.generated_at, language),
+              })
+            : text.waiting}
+        </p>
         {(diagnosticsQuery.error || detectChromeMutation.error) && (
           <div className="mt-4 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
             {errorMessage(diagnosticsQuery.error ?? detectChromeMutation.error)}

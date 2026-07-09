@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod diagnostics;
 pub mod environments;
 pub mod runs;

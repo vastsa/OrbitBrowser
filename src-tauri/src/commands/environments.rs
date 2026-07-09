@@ -129,7 +129,6 @@ pub async fn start_environment_inner(
     start_environment_inner_with_options(state, id, BrowserLaunchMode::Configured).await
 }
 
-#[allow(dead_code)]
 pub async fn start_environment_inner_headed(
     state: &AppState,
     id: String,

@@ -40,6 +40,24 @@ pub fn run(conn: &Connection, data_dir: &Path) -> rusqlite::Result<()> {
         "web_rtc_protection",
         "ALTER TABLE environments ADD COLUMN web_rtc_protection INTEGER NOT NULL DEFAULT 1",
     )?;
+    ensure_column(
+        conn,
+        "settings",
+        "aigc_base_url",
+        "ALTER TABLE settings ADD COLUMN aigc_base_url TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "settings",
+        "aigc_model",
+        "ALTER TABLE settings ADD COLUMN aigc_model TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "settings",
+        "aigc_api_key",
+        "ALTER TABLE settings ADD COLUMN aigc_api_key TEXT",
+    )?;
 
     let now = Utc::now().to_rfc3339();
     conn.execute(

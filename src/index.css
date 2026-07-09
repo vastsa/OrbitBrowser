@@ -189,7 +189,69 @@ textarea[data-code-editor="true"] {
   }
 
   .environment-table-scroll > table {
-    @apply min-w-[1460px];
+    min-width: 100%;
+    width: max-content;
+  }
+
+  .environment-table :is(th, td) {
+    white-space: nowrap;
+  }
+
+  .environment-table :is(th, td):nth-child(1) {
+    width: 3rem;
+  }
+
+  .environment-table :is(th, td):nth-child(2) {
+    max-width: 18rem;
+    min-width: 13rem;
+  }
+
+  .environment-table td:nth-child(2) > div {
+    max-width: 17rem;
+  }
+
+  .environment-table :is(th, td):nth-child(3) {
+    max-width: 10rem;
+  }
+
+  .environment-table :is(th, td):nth-child(4) {
+    max-width: 16rem;
+  }
+
+  .environment-table td:nth-child(4) > div {
+    max-width: 15rem;
+  }
+
+  .environment-table :is(th, td):nth-child(5) {
+    max-width: 9rem;
+  }
+
+  .environment-table :is(th, td):nth-child(6) {
+    max-width: 14rem;
+  }
+
+  .environment-table :is(th, td):nth-child(7) {
+    max-width: 11rem;
+  }
+
+  .environment-table :is(th, td):nth-child(8) {
+    max-width: 15rem;
+  }
+
+  .environment-table :is(th, td):nth-child(9) {
+    max-width: 9rem;
+  }
+
+  .environment-table :is(th, td):nth-child(10) {
+    max-width: 12rem;
+  }
+
+  .environment-table td:nth-child(3),
+  .environment-table td:nth-child(5),
+  .environment-table td:nth-child(6),
+  .environment-table td:nth-child(10) {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .viewport-page {
@@ -199,6 +261,166 @@ textarea[data-code-editor="true"] {
   .scroll-panel {
     @apply min-h-0 overflow-auto;
   }
+
+  .agent-message-bubble {
+    max-width: min(78%, calc(100% - 5.5rem));
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .agent-message-bubble > .selectable {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .agent-markdown {
+    @apply max-w-full text-sm leading-6;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .agent-markdown > :first-child {
+    margin-top: 0;
+  }
+
+  .agent-markdown > :last-child {
+    margin-bottom: 0;
+  }
+
+  .agent-markdown p,
+  .agent-markdown ul,
+  .agent-markdown ol,
+  .agent-markdown blockquote,
+  .agent-markdown pre,
+  .agent-markdown table {
+    @apply my-2;
+  }
+
+  .agent-markdown ul {
+    @apply list-disc pl-5;
+  }
+
+  .agent-markdown ol {
+    @apply list-decimal pl-5;
+  }
+
+  .agent-markdown li {
+    @apply my-1;
+  }
+
+  .agent-markdown a {
+    @apply font-medium text-brand-600 underline underline-offset-2;
+  }
+
+  .agent-message-bubble.bg-brand-600 .agent-markdown a {
+    @apply text-white decoration-white/70;
+  }
+
+  .agent-markdown code {
+    @apply rounded-md bg-ink-100 px-1.5 py-0.5 font-mono text-[0.85em] text-ink-900;
+  }
+
+  .agent-message-bubble.bg-brand-600 .agent-markdown code {
+    @apply bg-white/15 text-white;
+  }
+
+  .agent-markdown pre {
+    @apply max-w-full overflow-x-auto rounded-xl border border-line bg-ink-900 p-3 text-xs leading-5 text-ink-50;
+  }
+
+  .agent-markdown pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+
+  .agent-markdown blockquote {
+    @apply border-l-4 border-brand-100 pl-3 text-ink-500;
+  }
+
+  .agent-message-bubble.bg-brand-600 .agent-markdown blockquote {
+    @apply border-white/40 text-white/85;
+  }
+
+  .agent-markdown table {
+    @apply block max-w-full overflow-x-auto border-collapse text-xs;
+  }
+
+  .agent-markdown th,
+  .agent-markdown td {
+    @apply border border-line px-2 py-1 text-left align-top;
+  }
+
+  .agent-markdown th {
+    @apply bg-ink-50 font-semibold text-ink-900;
+  }
+
+  .agent-message-bubble.bg-brand-600 .agent-markdown th,
+  .agent-message-bubble.bg-brand-600 .agent-markdown td {
+    @apply border-white/25;
+  }
+
+  .agent-message-bubble.bg-brand-600 .agent-markdown th {
+    @apply bg-white/10 text-white;
+  }
+
+  .agent-markdown input[type="checkbox"] {
+    @apply mr-2 align-middle;
+  }
+
+  .agent-markdown .hljs-keyword,
+  .agent-markdown .hljs-selector-tag,
+  .agent-markdown .hljs-title.function_ {
+    color: #93c5fd;
+  }
+
+  .agent-markdown .hljs-string,
+  .agent-markdown .hljs-attr {
+    color: #86efac;
+  }
+
+  .agent-markdown .hljs-number,
+  .agent-markdown .hljs-literal {
+    color: #fca5a5;
+  }
+
+  .agent-markdown .hljs-comment {
+    color: #94a3b8;
+  }
+
+  .agent-thinking-dots {
+    @apply inline-flex h-6 items-center gap-1.5 align-middle;
+  }
+
+  .agent-thinking-dots > span {
+    @apply h-1.5 w-1.5 rounded-full bg-brand-500/70;
+    animation: agent-thinking-bounce 900ms ease-in-out infinite;
+  }
+
+  .agent-thinking-dots > span:nth-child(2) {
+    animation-delay: 120ms;
+  }
+
+  .agent-thinking-dots > span:nth-child(3) {
+    animation-delay: 240ms;
+  }
+
+  @keyframes agent-thinking-bounce {
+    0%, 80%, 100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(-3px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agent-thinking-dots > span {
+      animation: none;
+    }
+  }
+
 
   .table-row-hover {
     @apply transition-colors duration-150 hover:bg-ink-50;

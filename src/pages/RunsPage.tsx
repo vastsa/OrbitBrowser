@@ -1,18 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
-  CheckCircle2,
   ExternalLink,
   FileText,
   FolderOpen,
   RefreshCw,
   RotateCcw,
   Search,
-  TimerReset,
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/EmptyState";
@@ -20,9 +17,6 @@ import { SelectControl } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
 import {
   InfoRow,
-  MetricTile,
-  PageHeader,
-  SectionHeader,
   SkeletonRows,
 } from "@/components/PageScaffold";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -105,6 +99,7 @@ export function RunsPage() {
   const [detailTab, setDetailTab] = useState<"logs" | "artifacts">("logs");
   const runStatus = useUiStore((state) => state.runStatus);
   const setRunStatus = useUiStore((state) => state.setRunStatus);
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
 
   const tasksQuery = useQuery({
     queryKey: ["tasks"],
@@ -201,49 +196,58 @@ export function RunsPage() {
     environmentsQuery.data?.find((environment) => environment.id === id)?.name ??
     id;
   const runs = runsQuery.data ?? [];
+  const refetchRuns = runsQuery.refetch;
   const activeCount = runs.filter((run) => isActiveRun(run.status)).length;
   const succeededCount = runs.filter((run) => run.status === "succeeded").length;
   const failedCount = runs.filter((run) =>
     ["failed", "timed_out", "interrupted", "cancelled"].includes(run.status),
   ).length;
 
-  return (
-    <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
-      <PageHeader
-        eyebrow={text.eyebrow}
-        metrics={
-          <>
-            <MetricTile
-              icon={<Activity className="h-5 w-5" />}
-              label={text.metrics.runs}
-              tone="blue"
-              value={String(runs.length)}
-            />
-            <MetricTile
-              icon={<TimerReset className="h-5 w-5" />}
-              label={text.metrics.active}
-              tone={activeCount > 0 ? "green" : "slate"}
-              value={String(activeCount)}
-            />
-            <MetricTile
-              icon={<CheckCircle2 className="h-5 w-5" />}
-              label={text.metrics.succeeded}
-              tone="green"
-              value={String(succeededCount)}
-            />
-            <MetricTile
-              icon={<XCircle className="h-5 w-5" />}
-              label={text.metrics.attention}
-              tone={failedCount > 0 ? "amber" : "slate"}
-              value={String(failedCount)}
-            />
-          </>
-        }
-        title={text.pageTitle}
-      />
+  useEffect(() => {
+    setHeaderActions(
+      <>
+        <div className="hidden items-center gap-1.5 xl:flex">
+          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+            {text.metrics.runs}: {runs.length}
+          </span>
+          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+            {text.metrics.active}: {activeCount}
+          </span>
+          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+            {text.metrics.succeeded}: {succeededCount}
+          </span>
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-warn">
+            {text.metrics.attention}: {failedCount}
+          </span>
+        </div>
+        <Button
+          icon={<RefreshCw className="h-4 w-4" />}
+          onClick={() => void refetchRuns()}
+        >
+          {copy.common.refresh}
+        </Button>
+      </>,
+    );
 
-      <div className="scroll-panel grid min-h-0 min-w-0 gap-3 pr-1 xl:grid-cols-[minmax(0,1fr)_390px] xl:overflow-hidden xl:pr-0">
-      <section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
+    return () => setHeaderActions(undefined);
+  }, [
+    activeCount,
+    copy.common.refresh,
+    failedCount,
+    refetchRuns,
+    runs.length,
+    setHeaderActions,
+    succeededCount,
+    text.metrics.active,
+    text.metrics.attention,
+    text.metrics.runs,
+    text.metrics.succeeded,
+  ]);
+
+  return (
+    <div className="viewport-page grid-rows-[minmax(0,1fr)]">
+      <div className="scroll-panel min-h-0 min-w-0 pr-1">
+        <section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
         <div className="panel shrink-0 p-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative min-w-[220px] flex-1">
@@ -285,12 +289,6 @@ export function RunsPage() {
                 </option>
               ))}
             </SelectControl>
-            <Button
-              icon={<RefreshCw className="h-4 w-4" />}
-              onClick={() => void runsQuery.refetch()}
-            >
-              {copy.common.refresh}
-            </Button>
           </div>
         </div>
 
@@ -395,81 +393,89 @@ export function RunsPage() {
           </section>
         )}
       </section>
+      </div>
 
-      <aside className="panel flex min-h-0 min-w-0 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-line px-4 py-3">
-          <h2 className="text-sm font-semibold text-ink-900">{text.runDetails}</h2>
-          <p className="selectable mt-1 truncate text-xs text-ink-500">
-            {selectedRun ? selectedRun.id : text.noRunSelected}
-          </p>
-        </div>
-
+      <Modal
+        onClose={() => setSelectedRun(null)}
+        open={Boolean(selectedRun) && !deleteTarget}
+        title={text.runDetails}
+        widthClass="max-w-5xl"
+      >
         {selectedRun ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 border-b border-line p-3 text-sm">
-              <div className="mb-2 flex flex-wrap gap-2">
-                {isActiveRun(selectedRun.status) ? (
+          <div className="grid max-h-[72vh] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden">
+            <div className="grid gap-3 rounded-lg border border-line bg-ink-50/60 p-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-ink-500">{text.runDetails}</p>
+                  <p className="selectable mt-1 break-all text-sm font-semibold text-ink-900">
+                    {selectedRun.id}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {isActiveRun(selectedRun.status) ? (
+                    <Button
+                      className="h-8"
+                      disabled={cancelRunMutation.isPending}
+                      icon={<XCircle className="h-4 w-4" />}
+                      onClick={() => cancelRunMutation.mutate(selectedRun.id)}
+                      variant="danger"
+                    >
+                      {copy.common.cancel}
+                    </Button>
+                  ) : null}
+                  {selectedRun.batch_id && isActiveRun(selectedRun.status) ? (
+                    <Button
+                      className="h-8"
+                      disabled={cancelBatchMutation.isPending}
+                      icon={<XCircle className="h-4 w-4" />}
+                      onClick={() =>
+                        cancelBatchMutation.mutate(selectedRun.batch_id ?? "")
+                      }
+                      variant="danger"
+                    >
+                      {text.cancelBatch}
+                    </Button>
+                  ) : null}
+                  {["failed", "timed_out", "interrupted", "cancelled"].includes(
+                    selectedRun.status,
+                  ) ? (
+                    <Button
+                      className="h-8"
+                      disabled={retryRunMutation.isPending}
+                      icon={<RotateCcw className="h-4 w-4" />}
+                      onClick={() => retryRunMutation.mutate(selectedRun.id)}
+                    >
+                      {copy.common.retry}
+                    </Button>
+                  ) : null}
                   <Button
                     className="h-8"
-                    disabled={cancelRunMutation.isPending}
-                    icon={<XCircle className="h-4 w-4" />}
-                    onClick={() => cancelRunMutation.mutate(selectedRun.id)}
-                    variant="danger"
+                    disabled={openArtifactsDirMutation.isPending}
+                    icon={<FolderOpen className="h-4 w-4" />}
+                    onClick={() => openArtifactsDirMutation.mutate(selectedRun.id)}
                   >
-                    {copy.common.cancel}
+                    {text.artifactFolder}
                   </Button>
-                ) : null}
-                {selectedRun.batch_id && isActiveRun(selectedRun.status) ? (
                   <Button
                     className="h-8"
-                    disabled={cancelBatchMutation.isPending}
-                    icon={<XCircle className="h-4 w-4" />}
-                    onClick={() =>
-                      cancelBatchMutation.mutate(selectedRun.batch_id ?? "")
+                    disabled={isActiveRun(selectedRun.status)}
+                    icon={<Trash2 className="h-4 w-4" />}
+                    onClick={() => {
+                      deleteRunMutation.reset();
+                      setDeleteTarget(selectedRun);
+                    }}
+                    title={
+                      isActiveRun(selectedRun.status)
+                        ? text.cancelFirst
+                        : text.deleteRun
                     }
                     variant="danger"
                   >
-                    {text.cancelBatch}
+                    {copy.common.delete}
                   </Button>
-                ) : null}
-                {["failed", "timed_out", "interrupted", "cancelled"].includes(
-                  selectedRun.status,
-                ) ? (
-                  <Button
-                    className="h-8"
-                    disabled={retryRunMutation.isPending}
-                    icon={<RotateCcw className="h-4 w-4" />}
-                    onClick={() => retryRunMutation.mutate(selectedRun.id)}
-                  >
-                    {copy.common.retry}
-                  </Button>
-                ) : null}
-                <Button
-                  className="h-8"
-                  disabled={openArtifactsDirMutation.isPending}
-                  icon={<FolderOpen className="h-4 w-4" />}
-                  onClick={() => openArtifactsDirMutation.mutate(selectedRun.id)}
-                >
-                  {text.artifactFolder}
-                </Button>
-                <Button
-                  className="h-8"
-                  disabled={isActiveRun(selectedRun.status)}
-                  icon={<Trash2 className="h-4 w-4" />}
-                  onClick={() => {
-                    deleteRunMutation.reset();
-                    setDeleteTarget(selectedRun);
-                  }}
-                  title={
-                    isActiveRun(selectedRun.status)
-                      ? text.cancelFirst
-                      : text.deleteRun
-                  }
-                  variant="danger"
-                >
-                  {copy.common.delete}
-                </Button>
+                </div>
               </div>
+
               {(cancelRunMutation.error ||
                 cancelBatchMutation.error ||
                 retryRunMutation.error ||
@@ -485,44 +491,45 @@ export function RunsPage() {
                   )}
                 </div>
               )}
-              <InfoRow label={copy.common.status} value={<StatusBadge status={selectedRun.status} />} />
-              <InfoRow label={copy.common.task} value={taskName(selectedRun.task_id)} />
-              <InfoRow
-                label={copy.common.environment}
-                value={environmentName(selectedRun.environment_id)}
-              />
-              <InfoRow label={text.info.batch} value={selectedRun.batch_id || "-"} />
-              <InfoRow label={text.info.artifacts} value={selectedRun.artifacts_dir || "-"} />
-            </div>
 
-            <div className="shrink-0 border-b border-line px-3 py-2">
-              <div className="grid grid-cols-2 rounded-lg border border-line bg-ink-50 p-1">
-                <button
-                  className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
-                    detailTab === "logs"
-                      ? "bg-white text-ink-900 shadow-panel"
-                      : "text-ink-500 hover:text-ink-900"
-                  }`}
-                  onClick={() => setDetailTab("logs")}
-                  type="button"
-                >
-                  {copy.common.logs} {logsQuery.data?.length ?? 0}
-                </button>
-                <button
-                  className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
-                    detailTab === "artifacts"
-                      ? "bg-white text-ink-900 shadow-panel"
-                      : "text-ink-500 hover:text-ink-900"
-                  }`}
-                  onClick={() => setDetailTab("artifacts")}
-                  type="button"
-                >
-                  {copy.common.artifacts} {artifactsQuery.data?.length ?? 0}
-                </button>
+              <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
+                <InfoRow label={copy.common.status} value={<StatusBadge status={selectedRun.status} />} />
+                <InfoRow label={copy.common.task} value={taskName(selectedRun.task_id)} />
+                <InfoRow
+                  label={copy.common.environment}
+                  value={environmentName(selectedRun.environment_id)}
+                />
+                <InfoRow label={text.info.batch} value={selectedRun.batch_id || "-"} />
+                <InfoRow label={text.info.artifacts} value={selectedRun.artifacts_dir || "-"} />
               </div>
             </div>
 
-            <div className="scroll-panel flex-1 p-3">
+            <div className="grid grid-cols-2 rounded-lg border border-line bg-ink-50 p-1">
+              <button
+                className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
+                  detailTab === "logs"
+                    ? "bg-white text-ink-900 shadow-panel"
+                    : "text-ink-500 hover:text-ink-900"
+                }`}
+                onClick={() => setDetailTab("logs")}
+                type="button"
+              >
+                {copy.common.logs} {logsQuery.data?.length ?? 0}
+              </button>
+              <button
+                className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
+                  detailTab === "artifacts"
+                    ? "bg-white text-ink-900 shadow-panel"
+                    : "text-ink-500 hover:text-ink-900"
+                }`}
+                onClick={() => setDetailTab("artifacts")}
+                type="button"
+              >
+                {copy.common.artifacts} {artifactsQuery.data?.length ?? 0}
+              </button>
+            </div>
+
+            <div className="scroll-panel min-h-0 rounded-lg border border-line p-3">
               {detailTab === "logs" ? (
                 logsQuery.isError ? (
                   <div className="rounded-md bg-red-50 p-3 text-sm text-danger">
@@ -537,9 +544,9 @@ export function RunsPage() {
                         className="rounded-md border border-line bg-ink-50 p-2.5"
                         key={log.id}
                       >
-                        <div className="mb-1 flex items-center justify-between">
+                        <div className="mb-1 flex items-center justify-between gap-3">
                           <StatusBadge status={log.level} />
-                          <span className="text-xs text-ink-500">
+                          <span className="shrink-0 text-xs text-ink-500">
                             #{log.seq} {formatDateTime(log.created_at, language)}
                           </span>
                         </div>
@@ -577,7 +584,7 @@ export function RunsPage() {
                           />
                         </div>
                       </div>
-                      <p className="selectable mt-1 truncate text-xs text-ink-500">
+                      <p className="selectable mt-1 break-all text-xs text-ink-500">
                         {artifact.path}
                       </p>
                     </div>
@@ -586,15 +593,8 @@ export function RunsPage() {
               )}
             </div>
           </div>
-        ) : (
-          <EmptyState
-            description={text.emptyDetailDescription}
-            icon={<FileText className="h-5 w-5" />}
-            title={text.emptyDetailTitle}
-          />
-        )}
-      </aside>
-      </div>
+        ) : null}
+      </Modal>
       <Modal
         footer={
           <>

@@ -11,12 +11,22 @@ import type {
   EnvironmentStatusDetail,
   EnvironmentStatusMap,
   CleanupResult,
+  AgentArtifactContent,
+  AgentArtifactRef,
+  AgentBrowserActionInput,
+  AgentHistorySession,
+  AgentHistorySnapshot,
+  AgentRecordingSummary,
+  BrowserContextSnapshot,
   ProxyTestResult,
   RunArtifact,
   RunBatch,
   RunFilters,
   RunLog,
   RunOptions,
+  ReadAgentArtifactInput,
+  SaveAgentArtifactInput,
+  SaveAgentHistoryInput,
   Settings,
   TaskRun,
   TaskValidationResult,
@@ -56,6 +66,16 @@ export const COMMANDS = {
   getDiagnostics: "get_diagnostics",
   cleanupStaleSessions: "cleanup_stale_sessions",
   cleanupTempFiles: "cleanup_temp_files",
+  agentBrowserAction: "agent_browser_action",
+  listAgentHistories: "list_agent_histories",
+  getAgentHistory: "get_agent_history",
+  saveAgentHistory: "save_agent_history",
+  deleteAgentHistory: "delete_agent_history",
+  saveAgentArtifact: "save_agent_artifact",
+  readAgentArtifact: "read_agent_artifact",
+  agentStartBrowserRecording: "agent_start_browser_recording",
+  agentStopBrowserRecording: "agent_stop_browser_recording",
+  agentGetBrowserRecording: "agent_get_browser_recording",
 } as const;
 
 export type TauriCommand = (typeof COMMANDS)[keyof typeof COMMANDS];
@@ -68,6 +88,7 @@ const mockNow = new Date().toISOString();
 
 let mockEnvironments: Environment[] = [];
 let mockTasks: AutomationTask[] = [];
+const mockAgentHistories: Record<string, Record<string, AgentHistorySnapshot>> = {};
 
 type PreviewLanguage = "zh-CN" | "en-US";
 
@@ -277,6 +298,9 @@ function mockInvoke<TResult>(
         default_viewport_width: 1365,
         default_viewport_height: 860,
         data_dir: "~/Library/Application Support/orbit browser",
+        aigc_base_url: "https://api.openai.com/v1",
+        aigc_model: "gpt-4o-mini",
+        aigc_api_key: "",
         updated_at: mockNow,
       } as TResult;
     case COMMANDS.saveSettings:
@@ -288,6 +312,114 @@ function mockInvoke<TResult>(
         path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         version: "Chrome 126",
         searched_paths: [],
+      } as TResult;
+    case COMMANDS.agentBrowserAction:
+      return {
+        url: "https://example.com",
+        title: "Example Domain",
+        screenshot_base64: null,
+        html_excerpt: "<html><body>Example Domain</body></html>",
+        visible_text: "Example Domain\nThis domain is for use in illustrative examples.",
+        interactive_elements: [
+          { kind: "link", label: "More information", selector: "a" },
+        ],
+        console_entries: [],
+        network_entries: [{ method: "GET", url: "https://example.com", status: 200 }],
+      } as TResult;
+    case COMMANDS.listAgentHistories: {
+      const environmentId = String(args?.environmentId ?? "preview");
+      return Object.values(mockAgentHistories[environmentId] ?? {})
+        .map((snapshot) => ({
+          environment_id: snapshot.environment_id,
+          session_id: snapshot.session_id,
+          title: snapshot.title,
+          created_at: snapshot.created_at,
+          updated_at: snapshot.updated_at,
+          message_count: snapshot.messages.length,
+          path: snapshot.path,
+        }))
+        .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""))) as TResult;
+    }
+    case COMMANDS.getAgentHistory: {
+      const environmentId = String(args?.environmentId ?? "preview");
+      const sessionId = String(args?.sessionId ?? "default");
+      return (
+        mockAgentHistories[environmentId]?.[sessionId] ?? {
+          environment_id: environmentId,
+          session_id: sessionId,
+          title: "新对话",
+          messages: [],
+          api_messages: [],
+          created_at: null,
+          updated_at: null,
+          path: `/tmp/orbit-browser/agent-history/${environmentId}/${sessionId}.jsonl`,
+        }
+      ) as TResult;
+    }
+    case COMMANDS.saveAgentHistory: {
+      const input = args?.input as SaveAgentHistoryInput | undefined;
+      const environmentId = input?.environment_id ?? "preview";
+      const sessionId = input?.session_id ?? crypto.randomUUID();
+      const firstUserMessage = input?.messages.find(
+        (message) =>
+          typeof message === "object" &&
+          message !== null &&
+          "role" in message &&
+          (message as { role?: unknown }).role === "user",
+      ) as { content?: unknown } | undefined;
+      mockAgentHistories[environmentId] ??= {};
+      mockAgentHistories[environmentId][sessionId] = {
+        environment_id: environmentId,
+        session_id: sessionId,
+        title:
+          typeof firstUserMessage?.content === "string" && firstUserMessage.content.trim()
+            ? firstUserMessage.content.trim().slice(0, 40)
+            : "新对话",
+        messages: input?.messages ?? [],
+        api_messages: input?.api_messages ?? [],
+        created_at: mockAgentHistories[environmentId][sessionId]?.created_at ?? mockNow,
+        updated_at: mockNow,
+        path: `/tmp/orbit-browser/agent-history/${environmentId}/${sessionId}.jsonl`,
+      };
+      return mockAgentHistories[environmentId][sessionId] as TResult;
+    }
+    case COMMANDS.deleteAgentHistory: {
+      const environmentId = String(args?.environmentId ?? "preview");
+      const sessionId = String(args?.sessionId ?? "");
+      if (mockAgentHistories[environmentId]) {
+        delete mockAgentHistories[environmentId][sessionId];
+      }
+      return undefined as TResult;
+    }
+    case COMMANDS.agentStartBrowserRecording:
+    case COMMANDS.agentGetBrowserRecording:
+      return {
+        environment_id: String(args?.environmentId ?? "preview"),
+        is_recording: true,
+        started_at: mockNow,
+        total_events: 1,
+        total_requests: 1,
+        total_responses: 0,
+        events: [
+          {
+            kind: "request",
+            method: "GET",
+            url: "https://example.com",
+            resource_type: "Document",
+            timestamp: mockNow,
+          },
+        ],
+      } as TResult;
+    case COMMANDS.agentStopBrowserRecording:
+      return {
+        environment_id: String(args?.environmentId ?? "preview"),
+        is_recording: false,
+        started_at: mockNow,
+        stopped_at: mockNow,
+        total_events: 0,
+        total_requests: 0,
+        total_responses: 0,
+        events: [],
       } as TResult;
     case COMMANDS.getDiagnostics:
       return {
@@ -523,4 +655,51 @@ export const browserApi = {
 
   cleanupTempFiles: () =>
     invokeCommand<CleanupResult>(COMMANDS.cleanupTempFiles),
+
+  agentBrowserAction: (input: AgentBrowserActionInput) =>
+    invokeCommand<BrowserContextSnapshot | Record<string, unknown>>(
+      COMMANDS.agentBrowserAction,
+      { input },
+    ),
+
+  listAgentHistories: (environmentId: string) =>
+    invokeCommand<AgentHistorySession[]>(COMMANDS.listAgentHistories, {
+      environmentId,
+    }),
+
+  getAgentHistory: (environmentId: string, sessionId?: string) =>
+    invokeCommand<AgentHistorySnapshot>(COMMANDS.getAgentHistory, {
+      environmentId,
+      sessionId,
+    }),
+
+  saveAgentHistory: (input: SaveAgentHistoryInput) =>
+    invokeCommand<AgentHistorySnapshot>(COMMANDS.saveAgentHistory, { input }),
+
+  deleteAgentHistory: (environmentId: string, sessionId: string) =>
+    invokeCommand<void>(COMMANDS.deleteAgentHistory, {
+      environmentId,
+      sessionId,
+    }),
+
+  saveAgentArtifact: (input: SaveAgentArtifactInput) =>
+    invokeCommand<AgentArtifactRef>(COMMANDS.saveAgentArtifact, { input }),
+
+  readAgentArtifact: (input: ReadAgentArtifactInput) =>
+    invokeCommand<AgentArtifactContent>(COMMANDS.readAgentArtifact, { input }),
+
+  agentStartBrowserRecording: (environmentId: string) =>
+    invokeCommand<AgentRecordingSummary>(COMMANDS.agentStartBrowserRecording, {
+      environmentId,
+    }),
+
+  agentStopBrowserRecording: (environmentId: string) =>
+    invokeCommand<AgentRecordingSummary>(COMMANDS.agentStopBrowserRecording, {
+      environmentId,
+    }),
+
+  agentGetBrowserRecording: (environmentId: string) =>
+    invokeCommand<AgentRecordingSummary>(COMMANDS.agentGetBrowserRecording, {
+      environmentId,
+    }),
 };

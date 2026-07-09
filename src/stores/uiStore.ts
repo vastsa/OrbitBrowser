@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { create } from "zustand";
 
 import type { TaskRunStatus } from "@/types/domain";
@@ -21,11 +22,13 @@ interface UiState {
   environmentGroup: string;
   environmentTag: string;
   runStatus: TaskRunStatus | "all";
+  headerActions?: ReactNode;
   setAppLanguage: (value: AppLanguage) => void;
   setEnvironmentSearch: (value: string) => void;
   setEnvironmentGroup: (value: string) => void;
   setEnvironmentTag: (value: string) => void;
   setRunStatus: (value: TaskRunStatus | "all") => void;
+  setHeaderActions: (value?: ReactNode) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -34,6 +37,7 @@ export const useUiStore = create<UiState>((set) => ({
   environmentGroup: "",
   environmentTag: "",
   runStatus: "all",
+  headerActions: undefined,
   setAppLanguage: (appLanguage) => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(languageStorageKey, appLanguage);
@@ -44,4 +48,5 @@ export const useUiStore = create<UiState>((set) => ({
   setEnvironmentGroup: (environmentGroup) => set({ environmentGroup }),
   setEnvironmentTag: (environmentTag) => set({ environmentTag }),
   setRunStatus: (runStatus) => set({ runStatus }),
+  setHeaderActions: (headerActions) => set({ headerActions }),
 }));

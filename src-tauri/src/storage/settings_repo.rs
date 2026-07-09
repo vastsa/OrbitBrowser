@@ -9,7 +9,8 @@ pub fn get(db: &Db) -> AppResult<Settings> {
     let settings = conn.query_row(
         r#"
         SELECT chrome_path, default_concurrency, default_locale, default_timezone_id,
-               default_viewport_width, default_viewport_height, data_dir, created_at, updated_at
+               default_viewport_width, default_viewport_height, data_dir,
+               aigc_base_url, aigc_model, aigc_api_key, created_at, updated_at
         FROM settings
         WHERE id = 1
         "#,
@@ -23,8 +24,11 @@ pub fn get(db: &Db) -> AppResult<Settings> {
                 default_viewport_width: row.get(4)?,
                 default_viewport_height: row.get(5)?,
                 data_dir: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                aigc_base_url: row.get(7)?,
+                aigc_model: row.get(8)?,
+                aigc_api_key: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )?;
@@ -43,7 +47,10 @@ pub fn save(db: &Db, input: SaveSettingsInput) -> AppResult<Settings> {
             default_timezone_id = ?4,
             default_viewport_width = ?5,
             default_viewport_height = ?6,
-            updated_at = ?7
+            aigc_base_url = ?7,
+            aigc_model = ?8,
+            aigc_api_key = ?9,
+            updated_at = ?10
         WHERE id = 1
         "#,
         params![
@@ -53,8 +60,22 @@ pub fn save(db: &Db, input: SaveSettingsInput) -> AppResult<Settings> {
             input.default_timezone_id,
             input.default_viewport_width.max(320),
             input.default_viewport_height.max(240),
+            normalize_optional(input.aigc_base_url),
+            normalize_optional(input.aigc_model),
+            normalize_optional(input.aigc_api_key),
             now
         ],
     )?;
     get(db)
+}
+
+fn normalize_optional(value: Option<String>) -> Option<String> {
+    value.and_then(|item| {
+        let trimmed = item.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
 }

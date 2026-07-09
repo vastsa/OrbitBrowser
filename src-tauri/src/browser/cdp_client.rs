@@ -1,8 +1,10 @@
+use crate::domain::agent::AgentRecordingEvent;
 use crate::domain::browser_context::{
     BrowserConsoleEntry, BrowserContextSnapshot, BrowserInteractiveElement, BrowserNetworkEntry,
 };
 use crate::errors::{AppError, AppResult};
 use base64::Engine;
+use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -398,6 +400,30 @@ new Promise((resolve, reject) => {{
             })
     }
 
+    pub async fn next_recording_event(
+        &mut self,
+        timeout: Duration,
+    ) -> AppResult<Option<AgentRecordingEvent>> {
+        let Some(message) = tokio::time::timeout(timeout, self.socket.next())
+            .await
+            .map_err(|_| AppError::new("cdp_timeout", "Timed out waiting for CDP event"))?
+        else {
+            return Err(AppError::new(
+                "cdp_connect_failed",
+                "CDP connection is closed",
+            ));
+        };
+        let message = message.map_err(|err| {
+            AppError::new("cdp_connect_failed", format!("CDP read failed: {err}"))
+        })?;
+        let Message::Text(text) = message else {
+            return Ok(None);
+        };
+        let value: Value = serde_json::from_str(&text)?;
+        self.record_event(&value);
+        Ok(recording_event_from_cdp(&value))
+    }
+
     async fn call(&mut self, method: &str, params: Value) -> AppResult<Value> {
         let id = self.next_id;
         self.next_id += 1;
@@ -579,10 +605,16 @@ fn should_record_network_url(url: &str) -> bool {
 fn browser_context_script() -> &'static str {
     r#"
 (() => {
-  const MAX_HTML = 120000;
-  const MAX_TEXT = 30000;
-  const MAX_ELEMENTS = 220;
-  const clip = (value, max) => String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const HTML_EXCERPT_LIMIT = 20000;
+  const VISIBLE_TEXT_LIMIT = 12000;
+  const INTERACTIVE_ELEMENTS_LIMIT = 120;
+  const truncateText = (value, maxLength) => {
+    const text = String(value || "");
+    return text.length > maxLength
+      ? `${text.slice(0, maxLength)}…[truncated ${text.length - maxLength} chars]`
+      : text;
+  };
+  const normalizeText = (value) => String(value || "").replace(/\s+/g, " ").trim();
   const cssEscape = (value) => {
     if (globalThis.CSS && CSS.escape) return CSS.escape(value);
     return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
@@ -621,7 +653,7 @@ fn browser_context_script() -> &'static str {
   const labelFor = (el) => {
     const id = el.id;
     const label = id ? document.querySelector(`label[for="${cssEscape(id)}"]`) : null;
-    return clip(
+    return normalizeText(
       el.getAttribute("aria-label") ||
       el.getAttribute("placeholder") ||
       el.getAttribute("title") ||
@@ -630,8 +662,7 @@ fn browser_context_script() -> &'static str {
       label?.innerText ||
       el.getAttribute("name") ||
       el.getAttribute("href") ||
-      el.tagName.toLowerCase(),
-      180
+      el.tagName.toLowerCase()
     );
   };
   const interactiveElements = Array.from(
@@ -641,17 +672,89 @@ fn browser_context_script() -> &'static str {
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     })
-    .slice(0, MAX_ELEMENTS)
+    .slice(0, INTERACTIVE_ELEMENTS_LIMIT)
     .map((el) => ({
       kind: elementKind(el),
-      label: labelFor(el),
-      selector: selectorFor(el),
+      label: truncateText(labelFor(el), 160),
+      selector: truncateText(selectorFor(el), 240),
     }));
   return {
-    htmlExcerpt: String(document.documentElement?.outerHTML || "").slice(0, MAX_HTML),
-    visibleText: clip(document.body?.innerText || "", MAX_TEXT),
+    htmlExcerpt: truncateText(document.documentElement?.outerHTML || "", HTML_EXCERPT_LIMIT),
+    visibleText: truncateText(normalizeText(document.body?.innerText || ""), VISIBLE_TEXT_LIMIT),
     interactiveElements,
   };
 })()
 "#
+}
+
+fn recording_event_from_cdp(value: &Value) -> Option<AgentRecordingEvent> {
+    let method = value.get("method").and_then(Value::as_str)?;
+    let timestamp = Utc::now().to_rfc3339();
+    match method {
+        "Network.requestWillBeSent" => {
+            let request = value.pointer("/params/request");
+            let url = request
+                .and_then(|request| request.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !should_record_network_url(url) {
+                return None;
+            }
+            Some(AgentRecordingEvent {
+                kind: "request".to_string(),
+                method: Some(
+                    request
+                        .and_then(|request| request.get("method"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("GET")
+                        .to_string(),
+                ),
+                url: Some(url.to_string()),
+                status: None,
+                resource_type: value
+                    .pointer("/params/type")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                title: None,
+                timestamp,
+            })
+        }
+        "Network.responseReceived" => {
+            let response = value.pointer("/params/response");
+            let url = response
+                .and_then(|response| response.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !should_record_network_url(url) {
+                return None;
+            }
+            Some(AgentRecordingEvent {
+                kind: "response".to_string(),
+                method: None,
+                url: Some(url.to_string()),
+                status: response
+                    .and_then(|response| response.get("status"))
+                    .and_then(Value::as_i64),
+                resource_type: value
+                    .pointer("/params/type")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                title: None,
+                timestamp,
+            })
+        }
+        "Page.loadEventFired" | "Page.domContentEventFired" => Some(AgentRecordingEvent {
+            kind: method
+                .replace("Page.", "page_")
+                .replace("EventFired", "")
+                .to_lowercase(),
+            method: None,
+            url: None,
+            status: None,
+            resource_type: None,
+            title: None,
+            timestamp,
+        }),
+        _ => None,
+    }
 }

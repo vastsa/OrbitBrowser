@@ -1,19 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
+  Bot,
   CheckCircle2,
   FolderOpen,
   Languages,
-  Save,
   Search,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/Button";
 import { SelectField, TextField } from "@/components/FormField";
 import { languageOptions, useI18n } from "@/i18n";
 import { errorMessage, formatBytes } from "@/lib/format";
 import { browserApi } from "@/lib/tauri";
+import { useUiStore } from "@/stores/uiStore";
 import type { AppLanguage } from "@/stores/uiStore";
 import type { Settings } from "@/types/domain";
 
@@ -25,13 +28,37 @@ const defaultSettings: Settings = {
   default_viewport_width: 1280,
   default_viewport_height: 800,
   data_dir: "",
+  aigc_base_url: "",
+  aigc_model: "",
+  aigc_api_key: "",
 };
 
+const AUTO_SAVE_DELAY_MS = 600;
+
+function settingsSignature(value: Settings) {
+  return JSON.stringify({
+    chrome_path: value.chrome_path ?? "",
+    default_concurrency: value.default_concurrency,
+    default_locale: value.default_locale,
+    default_timezone_id: value.default_timezone_id,
+    default_viewport_width: value.default_viewport_width,
+    default_viewport_height: value.default_viewport_height,
+    aigc_base_url: value.aigc_base_url ?? "",
+    aigc_model: value.aigc_model ?? "",
+    aigc_api_key: value.aigc_api_key ?? "",
+  });
+}
+
 export function SettingsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { copy, format, language, setLanguage } = useI18n();
   const text = copy.settings;
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [loaded, setLoaded] = useState(false);
+  const lastSavedSignatureRef = useRef(settingsSignature(defaultSettings));
+  const currentSettingsRef = useRef<Settings>(defaultSettings);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -40,8 +67,16 @@ export function SettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: browserApi.saveSettings,
-    onSuccess: (saved) => {
-      setSettings(saved);
+    onSuccess: (saved, submitted) => {
+      const nextSettings = { ...defaultSettings, ...saved };
+      const submittedSignature = settingsSignature(submitted);
+      lastSavedSignatureRef.current = settingsSignature(nextSettings);
+
+      // 保存请求返回期间，用户可能继续输入；只同步当前这次提交对应的响应。
+      if (settingsSignature(currentSettingsRef.current) === submittedSignature) {
+        setSettings(nextSettings);
+      }
+
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
@@ -52,7 +87,7 @@ export function SettingsPage() {
       if (result.path) {
         const nextSettings = { ...settings, chrome_path: result.path };
         setSettings(nextSettings);
-        saveMutation.mutate(nextSettings);
+        saveImmediately(nextSettings);
       }
     },
   });
@@ -70,33 +105,76 @@ export function SettingsPage() {
   });
 
   useEffect(() => {
+    currentSettingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
     if (settingsQuery.data) {
-      setSettings({ ...defaultSettings, ...settingsQuery.data });
+      const nextSettings = { ...defaultSettings, ...settingsQuery.data };
+      lastSavedSignatureRef.current = settingsSignature(nextSettings);
+      setSettings(nextSettings);
+      setLoaded(true);
     }
   }, [settingsQuery.data]);
+
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+
+    const signature = settingsSignature(settings);
+    if (signature === lastSavedSignatureRef.current) {
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      saveMutation.mutate(settings);
+    }, AUTO_SAVE_DELAY_MS);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [loaded, settings]);
+
+  const saveImmediately = (nextSettings: Settings) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    saveMutation.mutate(nextSettings);
+  };
 
   const update = <TKey extends keyof Settings>(
     key: TKey,
     value: Settings[TKey],
   ) => setSettings((current) => ({ ...current, [key]: value }));
 
-  return (
-    <div className="scroll-panel grid h-full min-h-0 w-full gap-3 pr-1 xl:grid-cols-[minmax(0,1fr)_320px] xl:overflow-hidden xl:pr-0">
-      <section className="panel scroll-panel p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink-900">{text.general}</h2>
-          </div>
-          <Button
-            disabled={saveMutation.isPending}
-            icon={<Save className="h-4 w-4" />}
-            onClick={() => saveMutation.mutate(settings)}
-            variant="primary"
-          >
-            {text.save}
-          </Button>
-        </div>
+  const saveStatus = saveMutation.isPending
+    ? text.autoSaving
+    : settingsSignature(settings) === lastSavedSignatureRef.current
+      ? text.autoSaved
+      : text.autoSavePending;
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
 
+  useEffect(() => {
+    setHeaderActions(
+      <span className="rounded-full border border-line bg-white px-3 py-1 text-xs text-ink-500">
+        {saveStatus}
+      </span>,
+    );
+
+    return () => setHeaderActions(undefined);
+  }, [saveStatus, setHeaderActions]);
+
+  return (
+    <div className="scroll-panel h-full min-h-0 w-full pr-1">
+      <section className="panel scroll-panel p-4">
         {(settingsQuery.error ||
           saveMutation.error ||
           detectMutation.error ||
@@ -186,6 +264,35 @@ export function SettingsPage() {
           </section>
 
           <section className="grid gap-3">
+            <div className="flex items-center gap-2">
+              <Bot className="h-4 w-4 text-brand-600" />
+              <h3 className="text-sm font-semibold text-ink-900">{text.aigc}</h3>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              <TextField
+                label={text.aigcBaseUrl}
+                onChange={(event) => update("aigc_base_url", event.target.value)}
+                placeholder="https://api.openai.com/v1"
+                value={settings.aigc_base_url ?? ""}
+              />
+              <TextField
+                label={text.aigcModel}
+                onChange={(event) => update("aigc_model", event.target.value)}
+                placeholder="gpt-4o-mini"
+                value={settings.aigc_model ?? ""}
+              />
+              <TextField
+                autoComplete="off"
+                label={text.aigcApiKey}
+                onChange={(event) => update("aigc_api_key", event.target.value)}
+                placeholder="sk-..."
+                type="password"
+                value={settings.aigc_api_key ?? ""}
+              />
+            </div>
+          </section>
+
+          <section className="grid gap-3">
             <h3 className="text-sm font-semibold text-ink-900">{text.defaults}</h3>
             <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               <TextField
@@ -260,39 +367,47 @@ export function SettingsPage() {
               </div>
             </div>
           </section>
+
+          <section className="grid gap-3 rounded-lg border border-line bg-ink-50/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-900">{text.maintenance}</h3>
+                <p className="mt-1 text-xs text-ink-500">{text.maintenanceHint}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  icon={<Activity className="h-4 w-4" />}
+                  onClick={() => navigate("/diagnostics")}
+                >
+                  {text.openDiagnostics}
+                </Button>
+                <Button
+                  disabled={cleanupMutation.isPending}
+                  icon={<Trash2 className="h-4 w-4" />}
+                  onClick={() => cleanupMutation.mutate()}
+                >
+                  {text.cleanTemp}
+                </Button>
+              </div>
+            </div>
+            {cleanupMutation.data ? (
+              <div className="rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
+                {format(text.cleanedItems, { count: cleanupMutation.data.cleaned })}
+                {cleanupMutation.data.freed_bytes
+                  ? format(text.freedBytes, {
+                      bytes: formatBytes(cleanupMutation.data.freed_bytes),
+                    })
+                  : ""}
+              </div>
+            ) : null}
+            {cleanupMutation.error ? (
+              <div className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+                {errorMessage(cleanupMutation.error)}
+              </div>
+            ) : null}
+          </section>
         </div>
       </section>
-
-      <aside className="scroll-panel grid content-start gap-3">
-        <section className="panel p-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink-900">{text.maintenance}</h2>
-            <Button
-              disabled={cleanupMutation.isPending}
-              icon={<Trash2 className="h-4 w-4" />}
-              onClick={() => cleanupMutation.mutate()}
-            >
-              {text.cleanTemp}
-            </Button>
-          </div>
-          {cleanupMutation.data ? (
-            <div className="mt-3 rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
-              {format(text.cleanedItems, { count: cleanupMutation.data.cleaned })}
-              {cleanupMutation.data.freed_bytes
-                ? format(text.freedBytes, {
-                    bytes: formatBytes(cleanupMutation.data.freed_bytes),
-                  })
-                : ""}
-            </div>
-          ) : null}
-          {cleanupMutation.error ? (
-            <div className="mt-3 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
-              {errorMessage(cleanupMutation.error)}
-            </div>
-          ) : null}
-        </section>
-
-      </aside>
     </div>
   );
 }

@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS settings (
   default_viewport_width INTEGER NOT NULL DEFAULT 1280,
   default_viewport_height INTEGER NOT NULL DEFAULT 800,
   data_dir TEXT NOT NULL,
+  aigc_base_url TEXT,
+  aigc_model TEXT,
+  aigc_api_key TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

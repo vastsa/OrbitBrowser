@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 interface EmptyStateProps {
   action?: ReactNode;
+  className?: string;
   description?: string;
   icon?: ReactNode;
   title: string;
@@ -9,12 +10,13 @@ interface EmptyStateProps {
 
 export function EmptyState({
   action,
+  className = "",
   description,
   icon,
   title,
 }: EmptyStateProps) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-ink-300 bg-white/75 px-6 py-10 text-center">
+    <div className={`flex min-h-56 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-ink-300 bg-white/75 px-6 py-10 text-center ${className}`}>
       {icon ? (
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
           {icon}

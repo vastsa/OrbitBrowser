@@ -17,7 +17,6 @@ import { EmptyState } from "@/components/EmptyState";
 import { TextareaField, TextField } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
 import {
-  PageHeader,
   SectionHeader,
   SkeletonRows,
 } from "@/components/PageScaffold";
@@ -25,6 +24,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { copy as i18nCopy, useI18n } from "@/i18n";
 import { errorMessage, formatDateTime, statusLabel } from "@/lib/format";
 import { browserApi } from "@/lib/tauri";
+import { useUiStore } from "@/stores/uiStore";
 import type {
   AutomationTask,
   AutomationTaskDraft,
@@ -124,23 +124,24 @@ export function TasksPage() {
   });
 
   const tasks = tasksQuery.data ?? [];
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
+
+  useEffect(() => {
+    setHeaderActions(
+      <Button
+        icon={<Plus className="h-4 w-4" />}
+        onClick={() => navigate("/tasks/new")}
+        variant="primary"
+      >
+        {text.newTask}
+      </Button>,
+    );
+
+    return () => setHeaderActions(undefined);
+  }, [navigate, setHeaderActions, text.newTask]);
 
   return (
-    <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
-      <PageHeader
-        actions={
-          <Button
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => navigate("/tasks/new")}
-            variant="primary"
-          >
-            {text.newTask}
-          </Button>
-        }
-        eyebrow={text.eyebrow}
-        title={text.pageTitle}
-      />
-
+    <div className="viewport-page grid-rows-[minmax(0,1fr)]">
       <section className="panel scroll-panel min-h-0 overflow-hidden">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
           <h2 className="text-sm font-semibold text-ink-900">{text.taskList}</h2>
@@ -241,6 +242,7 @@ export function TaskDetailPage() {
     null,
   );
   const [lastRunBatch, setLastRunBatch] = useState<RunBatch | null>(null);
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
 
   const tasksQuery = useQuery({
     queryKey: ["tasks"],
@@ -336,22 +338,73 @@ export function TaskDetailPage() {
     }
   }, [defaultScript, isNewTask, loadedTaskKey, taskId, tasks]);
 
+  useEffect(() => {
+    if (taskMissing) {
+      setHeaderActions(
+        <Button
+          icon={<ArrowLeft className="h-4 w-4" />}
+          onClick={() => navigate("/tasks")}
+        >
+          {text.backToList}
+        </Button>,
+      );
+      return () => setHeaderActions(undefined);
+    }
+
+    setHeaderActions(
+      <>
+        <Button
+          icon={<ArrowLeft className="h-4 w-4" />}
+          onClick={() => navigate("/tasks")}
+        >
+          {text.backToList}
+        </Button>
+        <Button
+          disabled={!draft.script.trim() || validateMutation.isPending}
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          onClick={() => validateMutation.mutate(draft.script)}
+        >
+          {text.validate}
+        </Button>
+        <Button
+          disabled={saveMutation.isPending || !draft.name.trim()}
+          icon={<Save className="h-4 w-4" />}
+          onClick={() => saveMutation.mutate(draft)}
+          variant="primary"
+        >
+          {text.saveTask}
+        </Button>
+        {draft.id ? (
+          <Button
+            disabled={deleteMutation.isPending}
+            icon={<Trash2 className="h-4 w-4" />}
+            onClick={() => setDeleteTarget(draft)}
+            variant="danger"
+          >
+            {copy.common.delete}
+          </Button>
+        ) : null}
+      </>,
+    );
+
+    return () => setHeaderActions(undefined);
+  }, [
+    copy.common.delete,
+    deleteMutation.isPending,
+    draft,
+    navigate,
+    saveMutation.isPending,
+    setHeaderActions,
+    taskMissing,
+    text.backToList,
+    text.saveTask,
+    text.validate,
+    validateMutation.isPending,
+  ]);
+
   if (taskMissing) {
     return (
-      <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
-        <PageHeader
-          actions={
-            <Button
-              icon={<ArrowLeft className="h-4 w-4" />}
-              onClick={() => navigate("/tasks")}
-            >
-              {text.backToList}
-            </Button>
-          }
-          eyebrow={text.eyebrow}
-          subtitle={text.taskNotFoundDescription}
-          title={text.taskNotFoundTitle}
-        />
+      <div className="viewport-page grid-rows-[minmax(0,1fr)]">
         <div className="scroll-panel">
           <EmptyState
             action={
@@ -369,48 +422,7 @@ export function TaskDetailPage() {
   }
 
   return (
-    <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
-      <PageHeader
-        actions={
-          <>
-            <Button
-              icon={<ArrowLeft className="h-4 w-4" />}
-              onClick={() => navigate("/tasks")}
-            >
-              {text.backToList}
-            </Button>
-            <Button
-              disabled={!draft.script.trim() || validateMutation.isPending}
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              onClick={() => validateMutation.mutate(draft.script)}
-            >
-              {text.validate}
-            </Button>
-            <Button
-              disabled={saveMutation.isPending || !draft.name.trim()}
-              icon={<Save className="h-4 w-4" />}
-              onClick={() => saveMutation.mutate(draft)}
-              variant="primary"
-            >
-              {text.saveTask}
-            </Button>
-            {draft.id ? (
-              <Button
-                disabled={deleteMutation.isPending}
-                icon={<Trash2 className="h-4 w-4" />}
-                onClick={() => setDeleteTarget(draft)}
-                variant="danger"
-              >
-                {copy.common.delete}
-              </Button>
-            ) : null}
-          </>
-        }
-        eyebrow={text.eyebrow}
-        subtitle={isNewTask ? text.newTaskHint : text.detailSubtitle}
-        title={isNewTask ? text.newTitle : draft.name || text.editTitle}
-      />
-
+    <div className="viewport-page grid-rows-[minmax(0,1fr)]">
       <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-4 pr-1 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:pr-0">
         <div className="grid min-w-0 content-start gap-4">
           <section className="panel p-4">

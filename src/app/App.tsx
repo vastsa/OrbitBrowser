@@ -5,6 +5,7 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { queryClient } from "@/app/queryClient";
 import { Layout } from "@/components/Layout";
+import { AgentPage } from "@/pages/AgentPage";
 import { DiagnosticsPage } from "@/pages/DiagnosticsPage";
 import { EnvironmentsPage } from "@/pages/EnvironmentsPage";
 import { RunsPage } from "@/pages/RunsPage";
@@ -60,6 +61,7 @@ export function App() {
             <Route element={<TaskDetailPage />} path="tasks/new" />
             <Route element={<TaskDetailPage />} path="tasks/:taskId" />
             <Route element={<RunsPage />} path="runs" />
+            <Route element={<AgentPage />} path="agent" />
             <Route element={<SettingsPage />} path="settings" />
             <Route element={<DiagnosticsPage />} path="diagnostics" />
           </Route>

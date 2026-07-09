@@ -202,10 +202,132 @@ export interface Settings {
   default_viewport_width: number;
   default_viewport_height: number;
   data_dir?: string | null;
+  aigc_base_url?: string | null;
+  aigc_model?: string | null;
+  aigc_api_key?: string | null;
   created_at?: string;
   updated_at?: string;
 }
 
+export interface BrowserInteractiveElement {
+  kind: string;
+  label: string;
+  selector: string;
+}
+
+export interface BrowserConsoleEntry {
+  level: string;
+  message: string;
+}
+
+export interface BrowserNetworkEntry {
+  method: string;
+  url: string;
+  status?: number | null;
+}
+
+export interface BrowserContextSnapshot {
+  url: string;
+  title: string;
+  screenshot_base64?: string | null;
+  html_excerpt: string;
+  visible_text: string;
+  interactive_elements: BrowserInteractiveElement[];
+  console_entries: BrowserConsoleEntry[];
+  network_entries: BrowserNetworkEntry[];
+}
+
+export interface AgentBrowserActionInput {
+  environment_id: string;
+  action: string;
+  url?: string | null;
+  selector?: string | null;
+  text?: string | null;
+  expression?: string | null;
+  milliseconds?: number | null;
+  include_screenshot?: boolean | null;
+}
+
+export interface AgentRecordingEvent {
+  kind: string;
+  method?: string | null;
+  url?: string | null;
+  status?: number | null;
+  resource_type?: string | null;
+  title?: string | null;
+  timestamp: string;
+}
+
+export interface AgentRecordingSummary {
+  environment_id: string;
+  is_recording: boolean;
+  started_at?: string | null;
+  stopped_at?: string | null;
+  total_events: number;
+  total_requests: number;
+  total_responses: number;
+  events: AgentRecordingEvent[];
+}
+
+export interface SaveAgentHistoryInput {
+  environment_id: string;
+  session_id?: string | null;
+  messages: unknown[];
+  api_messages: unknown[];
+}
+
+export interface AgentHistorySnapshot {
+  environment_id: string;
+  session_id: string;
+  title: string;
+  messages: unknown[];
+  api_messages: unknown[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  path: string;
+}
+
+export interface AgentHistorySession {
+  environment_id: string;
+  session_id: string;
+  title: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  message_count: number;
+  path: string;
+}
+
+export interface SaveAgentArtifactInput {
+  environment_id: string;
+  session_id: string;
+  artifact_id: string;
+  kind: string;
+  content: unknown;
+}
+
+export interface ReadAgentArtifactInput {
+  environment_id: string;
+  session_id: string;
+  artifact_id: string;
+  max_chars?: number | null;
+}
+
+export interface AgentArtifactRef {
+  environment_id: string;
+  session_id: string;
+  artifact_id: string;
+  kind: string;
+  path: string;
+  bytes: number;
+}
+
+export interface AgentArtifactContent {
+  artifact_id: string;
+  kind: string;
+  content: string;
+  bytes: number;
+  truncated: boolean;
+}
 
 
 export interface ChromeDetectionResult {

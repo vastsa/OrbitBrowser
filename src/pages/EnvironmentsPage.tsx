@@ -29,7 +29,7 @@ import {
   TextField,
 } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
-import { MetricTile, PageHeader, SkeletonRows } from "@/components/PageScaffold";
+import { SkeletonRows } from "@/components/PageScaffold";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useI18n } from "@/i18n";
 import { browserApi } from "@/lib/tauri";
@@ -421,6 +421,7 @@ export function EnvironmentsPage() {
   const setSearch = useUiStore((state) => state.setEnvironmentSearch);
   const setGroup = useUiStore((state) => state.setEnvironmentGroup);
   const setTag = useUiStore((state) => state.setEnvironmentTag);
+  const setHeaderActions = useUiStore((state) => state.setHeaderActions);
 
   const environmentsQuery = useQuery({
     queryKey: ["environments"],
@@ -765,41 +766,59 @@ export function EnvironmentsPage() {
     (environment) => normalizeProxy(environment).kind !== "none",
   ).length;
 
-  return (
-    <div className="viewport-page grid-rows-[auto_auto_auto_minmax(0,1fr)]">
-      <PageHeader
-        eyebrow={text.eyebrow}
-        metrics={
-          <>
-            <MetricTile
-              icon={<SquareStack className="h-5 w-5" />}
-              label={text.metrics.total}
-              tone="blue"
-              value={String(environments.length)}
-            />
-            <MetricTile
-              icon={<Power className="h-5 w-5" />}
-              label={text.metrics.running}
-              tone="green"
-              value={String(runningCount)}
-            />
-            <MetricTile
-              icon={<CheckSquare className="h-5 w-5" />}
-              label={text.metrics.healthy}
-              tone={healthyCount === environments.length ? "green" : "amber"}
-              value={`${healthyCount}/${environments.length}`}
-            />
-            <MetricTile
-              icon={<Network className="h-5 w-5" />}
-              label={text.metrics.proxied}
-              tone="amber"
-              value={String(proxiedCount)}
-            />
-          </>
-        }
-        title={text.pageTitle}
-      />
+  useEffect(() => {
+    setHeaderActions(
+      <>
+        <div className="hidden items-center gap-1.5 xl:flex">
+          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+            {text.metrics.total}: {environments.length}
+          </span>
+          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+            {text.metrics.running}: {runningCount}
+          </span>
+          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+            {text.metrics.healthy}: {healthyCount}/{environments.length}
+          </span>
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-warn">
+            {text.metrics.proxied}: {proxiedCount}
+          </span>
+        </div>
+        <Button
+          icon={<Upload className="h-4 w-4" />}
+          onClick={() => setImportOpen(true)}
+        >
+          {text.bulk.import}
+        </Button>
+        <Button
+          icon={<Plus className="h-4 w-4" />}
+          onClick={() => setEditing(createNewDraft())}
+          variant="primary"
+        >
+          {text.newEnvironment}
+        </Button>
+      </>,
+    );
 
+    return () => setHeaderActions(undefined);
+  }, [
+    environments.length,
+    healthyCount,
+    proxiedCount,
+    runningCount,
+    setHeaderActions,
+    settingsQuery.data,
+    text.bulk.import,
+    text.defaultName,
+    text.defaultTag,
+    text.metrics.healthy,
+    text.metrics.proxied,
+    text.metrics.running,
+    text.metrics.total,
+    text.newEnvironment,
+  ]);
+
+  return (
+    <div className="viewport-page grid-rows-[auto_auto_minmax(0,1fr)]">
       <section className="panel shrink-0 p-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
@@ -835,19 +854,6 @@ export function EnvironmentsPage() {
               </option>
             ))}
           </SelectControl>
-          <Button
-            icon={<Upload className="h-4 w-4" />}
-            onClick={() => setImportOpen(true)}
-          >
-            {text.bulk.import}
-          </Button>
-          <Button
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => setEditing(createNewDraft())}
-            variant="primary"
-          >
-            {text.newEnvironment}
-          </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
           <Button
@@ -960,20 +966,7 @@ export function EnvironmentsPage() {
         />
       ) : (
         <section className="panel table-scroll environment-table-scroll min-h-0 min-w-0">
-          <table className="w-full border-collapse">
-            <colgroup>
-              <col className="w-[46px]" />
-              <col className="w-[230px]" />
-              <col className="w-[120px]" />
-              <col className="w-[210px]" />
-              <col className="w-[120px]" />
-              <col className="w-[180px]" />
-              <col className="w-[140px]" />
-              <col className="w-[180px]" />
-              <col className="w-[110px]" />
-              <col className="w-[130px]" />
-              <col className="w-[220px]" />
-            </colgroup>
+          <table className="environment-table border-collapse">
             <thead className="table-header">
               <tr>
                 <th className="px-4 py-3">

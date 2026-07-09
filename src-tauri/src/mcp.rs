@@ -601,7 +601,10 @@ fn tools() -> Vec<Value> {
                     "default_locale": { "type": "string" },
                     "default_timezone_id": { "type": "string" },
                     "default_viewport_width": { "type": "integer", "minimum": 320 },
-                    "default_viewport_height": { "type": "integer", "minimum": 240 }
+                    "default_viewport_height": { "type": "integer", "minimum": 240 },
+                    "aigc_base_url": { "type": ["string", "null"] },
+                    "aigc_model": { "type": ["string", "null"] },
+                    "aigc_api_key": { "type": ["string", "null"] }
                 },
                 "required": [
                     "default_concurrency",

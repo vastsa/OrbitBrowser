@@ -10,6 +10,9 @@ pub struct Settings {
     pub default_viewport_width: i64,
     pub default_viewport_height: i64,
     pub data_dir: String,
+    pub aigc_base_url: Option<String>,
+    pub aigc_model: Option<String>,
+    pub aigc_api_key: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -23,4 +26,7 @@ pub struct SaveSettingsInput {
     pub default_timezone_id: String,
     pub default_viewport_width: i64,
     pub default_viewport_height: i64,
+    pub aigc_base_url: Option<String>,
+    pub aigc_model: Option<String>,
+    pub aigc_api_key: Option<String>,
 }
