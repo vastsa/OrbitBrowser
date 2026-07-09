@@ -11,9 +11,18 @@ pub fn open_path(path: &Path) -> AppResult<()> {
     let status = if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(path).status()
     } else if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path.to_string_lossy()])
-            .status()
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &path.to_string_lossy()])
+                .creation_flags(0x08000000)
+                .status()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            unreachable!()
+        }
     } else {
         std::process::Command::new("xdg-open").arg(path).status()
     }?;
