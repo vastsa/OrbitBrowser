@@ -16,7 +16,14 @@
         "width": 1320,
         "height": 860,
         "minWidth": 1280,
-        "minHeight": 720
+        "minHeight": 720,
+        "label": "main",
+        "center": true,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
+        "visible": true
       }
     ],
     "security": {
@@ -32,6 +39,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Orbit Browser contributors",
+    "category": "DeveloperTool",
+    "shortDescription": "Local browser runtime orchestrator",
+    "longDescription": "Orbit Browser manages isolated Chrome profiles, proxies, automation tasks, and local execution history."
   }
 }

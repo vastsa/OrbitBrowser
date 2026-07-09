@@ -2,8 +2,10 @@ use crate::errors::{AppError, AppResult};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const MAC_CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MAC_CHROMIUM: &str = "/Applications/Chromium.app/Contents/MacOS/Chromium";
@@ -50,25 +52,49 @@ fn path_binaries() -> &'static [&'static str] {
     &[
         "google-chrome",
         "google-chrome-stable",
+        "google-chrome-beta",
+        "google-chrome-unstable",
         "chromium",
         "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "brave-browser",
         "chrome",
     ]
 }
 
 fn linux_candidates() -> Vec<PathBuf> {
-    [
+    let mut candidates = [
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
+        "/usr/local/bin/google-chrome",
+        "/usr/local/bin/chromium",
+        "/opt/google/chrome/google-chrome",
+        "/opt/google/chrome/chrome",
+        "/opt/google/chrome-beta/google-chrome-beta",
+        "/opt/google/chrome-unstable/google-chrome-unstable",
+        "/usr/bin/microsoft-edge",
+        "/usr/bin/microsoft-edge-stable",
+        "/usr/bin/brave-browser",
         "/snap/bin/chromium",
         "/var/lib/flatpak/exports/bin/com.google.Chrome",
         "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
     ]
     .into_iter()
     .map(PathBuf::from)
-    .collect()
+    .collect::<Vec<_>>();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let exports = PathBuf::from(home).join(".local/share/flatpak/exports/bin");
+        candidates.extend([
+            exports.join("com.google.Chrome"),
+            exports.join("org.chromium.Chromium"),
+        ]);
+    }
+
+    candidates
 }
 
 fn windows_candidates() -> Vec<PathBuf> {
@@ -84,6 +110,9 @@ fn windows_candidates() -> Vec<PathBuf> {
         let base = PathBuf::from(base);
         candidates.extend([
             base.join("Google/Chrome/Application/chrome.exe"),
+            base.join("Google/Chrome Beta/Application/chrome.exe"),
+            base.join("Google/Chrome Dev/Application/chrome.exe"),
+            base.join("Google/Chrome SxS/Application/chrome.exe"),
             base.join("Chromium/Application/chrome.exe"),
             base.join("Microsoft/Edge/Application/msedge.exe"),
         ]);
@@ -107,11 +136,11 @@ pub fn detect() -> ChromeDetectionResult {
         .collect::<Vec<_>>();
 
     for candidate in &candidates {
-        if candidate.exists() {
+        if let Some(version) = version(candidate) {
             return ChromeDetectionResult {
                 found: true,
                 path: Some(candidate.to_string_lossy().to_string()),
-                version: version(candidate),
+                version: Some(version),
                 searched_paths,
                 error: None,
             };
@@ -144,10 +173,19 @@ pub fn validate_path(path: &str) -> AppResult<ChromeDetectionResult> {
         );
     }
 
+    let Some(version) = version(&candidate) else {
+        return Err(AppError::new(
+            "chrome_invalid_path",
+            "Chrome path did not pass launch validation",
+        )
+        .details(json!({ "path": path }))
+        .retryable(true));
+    };
+
     Ok(ChromeDetectionResult {
         found: true,
         path: Some(candidate.to_string_lossy().to_string()),
-        version: version(&candidate),
+        version: Some(version),
         searched_paths: vec![path.to_string()],
         error: None,
     })
@@ -176,17 +214,55 @@ pub fn resolve(override_path: Option<&str>, settings_path: Option<&str>) -> AppR
 }
 
 fn version(path: &Path) -> Option<String> {
-    let output = Command::new(path).arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
+    const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+    let mut command = Command::new(path);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    configure_probe_process(&mut command);
+
+    let mut child = command.spawn().ok()?;
+    let started_at = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) => return None,
+            Ok(None) if started_at.elapsed() < VERSION_PROBE_TIMEOUT => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Err(_) => return None,
+        }
     }
-    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    let mut stdout = String::new();
+    child.stdout.take()?.read_to_string(&mut stdout).ok()?;
+    let value = stdout.trim().to_string();
     if value.is_empty() {
         None
     } else {
         Some(value)
     }
 }
+
+#[cfg(target_os = "windows")]
+fn configure_probe_process(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_probe_process(_command: &mut Command) {}
 
 fn find_on_path(binary: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;

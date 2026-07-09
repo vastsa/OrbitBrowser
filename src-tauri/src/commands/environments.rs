@@ -298,8 +298,10 @@ async fn start_environment_inner_with_options(
     let mut command = Command::new(&chrome_path);
     command
         .args(&launch_plan.args)
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    configure_browser_process(&mut command);
     if let Some(timezone_id) = &runtime_fingerprint.timezone_id {
         command.env("TZ", timezone_id);
     }
@@ -319,11 +321,13 @@ async fn start_environment_inner_with_options(
         Ok(version) => version,
         Err(err) => {
             let _ = child.kill();
+            let _ = child.wait();
             let _ = profile_manager::remove_lock(state.data_dir(), &id);
             let _ = chrome_args::cleanup_proxy_extension(state.data_dir(), &id);
             return Err(err);
         }
     };
+    reap_browser_child_on_exit(child);
     apply_and_watch_runtime(cdp_port, runtime_fingerprint).await;
     navigate_start_url_after_overrides(cdp_port, env.start_url.as_deref()).await;
 
@@ -872,6 +876,23 @@ async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint)
     }
     timezone_controller::spawn(cdp_port, overrides);
 }
+
+fn reap_browser_child_on_exit(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn configure_browser_process(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_browser_process(_command: &mut Command) {}
 
 async fn navigate_start_url_after_overrides(cdp_port: u16, start_url: Option<&str>) {
     let Some(start_url) = start_url
