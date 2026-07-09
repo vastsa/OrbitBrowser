@@ -64,6 +64,8 @@
     );
   --selection-bg: rgb(var(--color-brand-800) / 0.24);
   --readonly-bg: rgb(var(--color-ink-50) / 0.9);
+  --maintenance-card-bg: rgb(var(--color-ink-50) / 0.42);
+  --maintenance-card-border: rgb(var(--color-line));
 
   --select-option-bg: rgb(var(--color-white));
   --select-option-fg: rgb(var(--color-ink-900));
@@ -905,6 +907,11 @@ textarea[data-code-editor="true"] {
     }
   }
 
+  .settings-maintenance-card {
+    background-color: var(--maintenance-card-bg);
+    border-color: var(--maintenance-card-border);
+  }
+
   .table-row-hover {
     @apply transition-colors duration-150 hover:bg-ink-50;
   }
@@ -952,6 +959,8 @@ textarea[data-code-editor="true"] {
       );
     --selection-bg: rgb(var(--color-brand-400) / 0.32);
     --readonly-bg: rgb(var(--color-ink-800) / 0.72);
+    --maintenance-card-bg: rgb(var(--color-ink-900) / 0.68);
+    --maintenance-card-border: rgb(var(--color-ink-500) / 0.34);
 
     --select-option-bg: rgb(var(--color-ink-900));
     --select-option-fg: rgb(var(--color-ink-200));

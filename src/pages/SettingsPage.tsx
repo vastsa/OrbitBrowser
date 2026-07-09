@@ -73,7 +73,9 @@ export function SettingsPage() {
       lastSavedSignatureRef.current = settingsSignature(nextSettings);
 
       // 保存请求返回期间，用户可能继续输入；只同步当前这次提交对应的响应。
-      if (settingsSignature(currentSettingsRef.current) === submittedSignature) {
+      if (
+        settingsSignature(currentSettingsRef.current) === submittedSignature
+      ) {
         setSettings(nextSettings);
       }
 
@@ -195,12 +197,16 @@ export function SettingsPage() {
           <section className="grid gap-3">
             <div className="flex items-center gap-2">
               <Languages className="h-4 w-4 text-brand-600" />
-              <h3 className="text-sm font-semibold text-ink-900">{text.preferences}</h3>
+              <h3 className="text-sm font-semibold text-ink-900">
+                {text.preferences}
+              </h3>
             </div>
             <div className="md:max-w-sm">
               <SelectField
                 label={text.appLanguage}
-                onChange={(event) => setLanguage(event.target.value as AppLanguage)}
+                onChange={(event) =>
+                  setLanguage(event.target.value as AppLanguage)
+                }
                 value={language}
               >
                 {languageOptions.map((item) => (
@@ -245,7 +251,7 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {(detectMutation.data || validateChromeMutation.data) ? (
+            {detectMutation.data || validateChromeMutation.data ? (
               <div
                 className={`rounded-md border px-3 py-2 text-sm ${
                   (validateChromeMutation.data ?? detectMutation.data)?.found
@@ -255,10 +261,12 @@ export function SettingsPage() {
               >
                 {(validateChromeMutation.data ?? detectMutation.data)?.found
                   ? format(text.detected, {
-                      version: (validateChromeMutation.data ?? detectMutation.data)?.version ?? "Chrome",
+                      version:
+                        (validateChromeMutation.data ?? detectMutation.data)
+                          ?.version ?? "Chrome",
                     })
-                  : (validateChromeMutation.data ?? detectMutation.data)?.error ??
-                    text.chromeNotDetected}
+                  : ((validateChromeMutation.data ?? detectMutation.data)
+                      ?.error ?? text.chromeNotDetected)}
               </div>
             ) : null}
           </section>
@@ -266,12 +274,16 @@ export function SettingsPage() {
           <section className="grid gap-3">
             <div className="flex items-center gap-2">
               <Bot className="h-4 w-4 text-brand-600" />
-              <h3 className="text-sm font-semibold text-ink-900">{text.aigc}</h3>
+              <h3 className="text-sm font-semibold text-ink-900">
+                {text.aigc}
+              </h3>
             </div>
             <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               <TextField
                 label={text.aigcBaseUrl}
-                onChange={(event) => update("aigc_base_url", event.target.value)}
+                onChange={(event) =>
+                  update("aigc_base_url", event.target.value)
+                }
                 placeholder="https://api.openai.com/v1"
                 value={settings.aigc_base_url ?? ""}
               />
@@ -293,16 +305,15 @@ export function SettingsPage() {
           </section>
 
           <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-ink-900">{text.defaults}</h3>
+            <h3 className="text-sm font-semibold text-ink-900">
+              {text.defaults}
+            </h3>
             <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               <TextField
                 label={text.defaultConcurrency}
                 min={1}
                 onChange={(event) =>
-                  update(
-                    "default_concurrency",
-                    Number(event.target.value) || 1,
-                  )
+                  update("default_concurrency", Number(event.target.value) || 1)
                 }
                 type="number"
                 value={settings.default_concurrency}
@@ -349,7 +360,9 @@ export function SettingsPage() {
           </section>
 
           <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-ink-900">{text.dataDirectory}</h3>
+            <h3 className="text-sm font-semibold text-ink-900">
+              {text.dataDirectory}
+            </h3>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
               <TextField
                 label={text.currentDirectory}
@@ -368,11 +381,15 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="grid gap-3 rounded-lg border border-line bg-ink-50/40 p-3">
+          <section className="settings-maintenance-card grid gap-3 rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-ink-900">{text.maintenance}</h3>
-                <p className="mt-1 text-xs text-ink-500">{text.maintenanceHint}</p>
+                <h3 className="text-sm font-semibold text-ink-900">
+                  {text.maintenance}
+                </h3>
+                <p className="mt-1 text-xs text-ink-500">
+                  {text.maintenanceHint}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -392,7 +409,9 @@ export function SettingsPage() {
             </div>
             {cleanupMutation.data ? (
               <div className="rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
-                {format(text.cleanedItems, { count: cleanupMutation.data.cleaned })}
+                {format(text.cleanedItems, {
+                  count: cleanupMutation.data.cleaned,
+                })}
                 {cleanupMutation.data.freed_bytes
                   ? format(text.freedBytes, {
                       bytes: formatBytes(cleanupMutation.data.freed_bytes),
@@ -401,7 +420,10 @@ export function SettingsPage() {
               </div>
             ) : null}
             {cleanupMutation.error ? (
-              <div className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+              <div
+                className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+                role="alert"
+              >
                 {errorMessage(cleanupMutation.error)}
               </div>
             ) : null}
