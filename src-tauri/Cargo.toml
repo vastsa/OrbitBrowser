@@ -1,6 +1,6 @@
 [package]
 name = "orbit-browser"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local browser runtime orchestrator for isolated Chrome profiles and automation tasks"
 authors = ["Orbit Browser contributors"]
 edition = "2021"
