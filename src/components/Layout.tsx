@@ -9,6 +9,7 @@ import { useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import appLogo from "@/assets/app-logo.png";
+import appLogoDark from "@/assets/app-logo-dark.png";
 import { useI18n } from "@/i18n";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -51,44 +52,71 @@ export function Layout() {
 
   return (
     <div className="app-shell h-screen min-w-[1280px] overflow-hidden text-ink-900">
-      <aside className="fixed inset-y-0 left-0 z-20 w-[12rem] border-r border-white/70 bg-white/80 text-ink-900 shadow-elevated backdrop-blur-xl">
-        <div className="flex h-14 items-center gap-2.5 px-3">
-          <img
-            alt="Orbit Browser"
-            className="h-8 w-8 shrink-0 rounded-xl object-cover shadow-panel"
-            src={appLogo}
-          />
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-20 w-56 overflow-hidden border-r text-ink-900 shadow-elevated backdrop-blur-xl">
+        <div className="app-sidebar-bg app-sidebar-bg-light pointer-events-none absolute inset-0" />
+        <div className="app-sidebar-bg app-sidebar-bg-dark pointer-events-none absolute inset-0" />
+        <div className="app-sidebar-glow app-sidebar-glow-top-light pointer-events-none absolute inset-0" />
+        <div className="app-sidebar-glow app-sidebar-glow-top-dark pointer-events-none absolute inset-0" />
+        <div className="app-sidebar-glow app-sidebar-glow-bottom-light pointer-events-none absolute -left-16 bottom-10 h-40 w-40 rounded-full blur-3xl" />
+        <div className="app-sidebar-glow app-sidebar-glow-bottom-dark pointer-events-none absolute -left-16 bottom-10 h-40 w-40 rounded-full blur-3xl" />
+
+        <div className="relative flex h-16 items-center gap-3 px-4">
+          <picture className="h-9 w-9 shrink-0">
+            <source media="(prefers-color-scheme: dark)" srcSet={appLogoDark} />
+            <img
+              alt="Orbit Browser"
+              className="h-9 w-9 rounded-2xl object-cover shadow-panel ring-1 ring-white/80"
+              src={appLogo}
+            />
+          </picture>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold tracking-tight text-ink-900">Orbit Browser</p>
+            <p className="truncate text-sm font-bold tracking-tight text-ink-900">Orbit Browser</p>
+            <p className="mt-0.5 truncate text-[11px] font-medium text-ink-500">本地隔离浏览器</p>
           </div>
         </div>
-        <nav className="grid gap-1 px-1.5 py-2">
+
+        <nav aria-label="Primary" className="relative grid gap-1.5 px-3 py-2 animate-soft-enter-left">
           {navigation.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
                 className={({ isActive }) =>
-                  `flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  `group relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-3 py-2.5 text-sm transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                     isActive
-                      ? "border border-brand-100 bg-brand-50 text-brand-700 shadow-panel"
-                      : "border border-transparent text-ink-700 hover:border-line hover:bg-white hover:text-ink-900"
+                      ? "border-brand-100 bg-white text-brand-700 shadow-panel"
+                      : "border-transparent text-ink-600 hover:border-white/80 hover:bg-white/72 hover:text-ink-900 hover:shadow-panel"
                   }`
                 }
                 end={item.to === "/"}
                 key={item.to}
                 to={item.to}
               >
-                <Icon className="h-5 w-5 shrink-0" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{item.label}</span>
-                </span>
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`absolute inset-y-2 left-0 w-1 rounded-r-full transition-opacity duration-200 ${
+                        isActive ? "bg-brand-500 opacity-100" : "bg-brand-300 opacity-0 group-hover:opacity-60"
+                      }`}
+                    />
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200 ${
+                        isActive
+                          ? "bg-brand-600 text-white shadow-panel"
+                          : "bg-ink-100 text-ink-500 group-hover:bg-brand-50 group-hover:text-brand-700"
+                      }`}
+                    >
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-semibold">{item.label}</span>
+                  </>
+                )}
               </NavLink>
             );
           })}
         </nav>
       </aside>
-      <main className="flex h-screen min-h-0 flex-col pl-[12rem]">
-        <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/70 bg-white/75 px-6 backdrop-blur-xl">
+      <main className="flex h-screen min-h-0 flex-col pl-56">
+        <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-white/70 bg-white/75 px-6 backdrop-blur-xl transition-colors duration-200 ease-out">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight text-ink-900">{page.title}</h1>
           </div>

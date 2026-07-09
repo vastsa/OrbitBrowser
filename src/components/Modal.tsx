@@ -45,11 +45,11 @@ export function Modal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink-900/35 p-4">
+    <div className="modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/35 p-4">
       <section
         aria-labelledby={titleId}
         aria-modal="true"
-        className={`flex max-h-[88vh] w-full ${widthClass} flex-col overflow-hidden rounded-lg border border-line bg-white shadow-elevated`}
+        className={`modal-panel flex max-h-[88vh] w-full ${widthClass} flex-col overflow-hidden rounded-lg border border-line bg-white shadow-elevated`}
         role="dialog"
       >
         <header className="flex h-14 items-center justify-between border-b border-line bg-ink-50/70 px-5">
