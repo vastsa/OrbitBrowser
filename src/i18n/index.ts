@@ -225,13 +225,11 @@ export const copy = {
         viewportHeight: "窗口高度",
         scaleFactor: "缩放因子",
         platform: "Platform",
-        platformHint:
-          "留空或填 auto 时不覆盖；仅在手动填写 User-Agent 时建议同步填写。",
+        platformHint: "留空或填 auto 时按当前系统生成，例如 MacIntel / Win32。",
         seed: "随机种子",
-        seedHint: "预留字段；当前不参与 UA 生成。",
+        seedHint: "预留字段；留空时系统元数据每次启动轻微变化。",
         userAgent: "User-Agent",
-        userAgentHint:
-          "留空或填 auto 时使用 Chrome 原生 UA；只有手动填写时才覆盖。",
+        userAgentHint: "留空或填 auto 时使用本机 Chrome 真实完整版本，仅系统元数据轻微变化。",
       },
     },
     tasks: {
@@ -688,8 +686,7 @@ export const copy = {
         profileHint: "Leave empty to let the app create an isolated profile.",
         webRtcProtection: "Enable WebRTC leak protection",
         locale: "Locale",
-        localeHint:
-          "Use auto to derive browser languages and Intl locale from the IP region.",
+        localeHint: "Use auto to derive browser languages and Intl locale from the IP region.",
         proxyType: "Type",
         proxyNone: "None",
         host: "Host",
@@ -710,13 +707,11 @@ export const copy = {
         viewportHeight: "Viewport Height",
         scaleFactor: "Scale Factor",
         platform: "Platform",
-        platformHint:
-          "Leave empty or use auto to avoid overriding it; set it manually only with a custom User-Agent.",
+        platformHint: "Leave empty or use auto to derive it from the current OS, such as MacIntel or Win32.",
         seed: "Random Seed",
-        seedHint: "Reserved field. It is not used for UA generation right now.",
+        seedHint: "Reserved field. Leave empty to slightly vary system metadata on every launch.",
         userAgent: "User-Agent",
-        userAgentHint:
-          "Leave empty or use auto to keep Chrome's native UA; only a manual value overrides it.",
+        userAgentHint: "Leave empty or use auto to use the real local full Chrome version and only vary system metadata slightly.",
       },
     },
     tasks: {

@@ -6,30 +6,30 @@
   --color-white: 255 255 255;
   --color-black: 0 0 0;
 
-  --color-ink-50: 248 250 252;
-  --color-ink-100: 241 245 249;
-  --color-ink-200: 226 232 240;
-  --color-ink-300: 203 213 225;
-  --color-ink-400: 148 163 184;
-  --color-ink-500: 100 116 139;
-  --color-ink-600: 71 85 105;
-  --color-ink-700: 51 65 85;
-  --color-ink-800: 30 41 59;
-  --color-ink-900: 15 23 42;
-  --color-ink-950: 11 17 32;
+  --color-ink-50: 247 249 252;
+  --color-ink-100: 238 242 247;
+  --color-ink-200: 222 228 238;
+  --color-ink-300: 199 209 223;
+  --color-ink-400: 135 150 170;
+  --color-ink-500: 96 112 134;
+  --color-ink-600: 67 82 105;
+  --color-ink-700: 44 58 80;
+  --color-ink-800: 29 42 63;
+  --color-ink-900: 18 29 49;
+  --color-ink-950: 10 18 33;
 
-  --color-line: 219 228 239;
-  --color-brand-50: 240 253 250;
-  --color-brand-100: 204 251 241;
-  --color-brand-200: 153 246 228;
-  --color-brand-300: 94 234 212;
-  --color-brand-400: 45 212 191;
-  --color-brand-500: 13 148 136;
-  --color-brand-600: 15 118 110;
-  --color-brand-700: 17 94 89;
-  --color-brand-800: 20 83 79;
-  --color-brand-900: 19 78 74;
-  --color-accent: 249 115 22;
+  --color-line: 218 226 236;
+  --color-brand-50: 239 246 255;
+  --color-brand-100: 219 234 254;
+  --color-brand-200: 191 219 254;
+  --color-brand-300: 125 211 252;
+  --color-brand-400: 56 189 248;
+  --color-brand-500: 14 165 233;
+  --color-brand-600: 2 132 199;
+  --color-brand-700: 3 105 161;
+  --color-brand-800: 7 89 133;
+  --color-brand-900: 12 74 110;
+  --color-accent: 124 58 237;
   --color-info: 37 99 235;
   --color-ok: 21 128 61;
   --color-ok-soft: 22 163 74;
@@ -45,23 +45,12 @@
 
   --app-fg: rgb(var(--color-ink-900));
   --app-bg: rgb(var(--color-ink-50));
+  --window-surface: rgb(var(--color-ink-50));
+  --mac-titlebar-height: 38px;
   --app-body-bg:
-    radial-gradient(
-      circle at 10% 0%,
-      rgb(var(--color-brand-800) / 0.13),
-      transparent 28rem
-    ),
-    radial-gradient(
-      circle at 90% 10%,
-      rgb(var(--color-accent) / 0.08),
-      transparent 22rem
-    ),
-    linear-gradient(
-      180deg,
-      rgb(var(--color-white)) 0%,
-      rgb(var(--color-brand-50) / 0.36) 36%,
-      rgb(var(--color-brand-50)) 100%
-    );
+    radial-gradient(circle at 82% -12%, rgb(var(--color-brand-200) / 0.72), transparent 31rem),
+    radial-gradient(circle at 23% 100%, rgb(var(--color-accent) / 0.06), transparent 32rem),
+    linear-gradient(135deg, rgb(var(--color-ink-50)) 0%, rgb(var(--color-white)) 48%, rgb(var(--color-brand-50)) 100%);
   --selection-bg: rgb(var(--color-brand-800) / 0.24);
   --readonly-bg: rgb(var(--color-ink-50) / 0.9);
   --maintenance-card-bg: rgb(var(--color-ink-50) / 0.42);
@@ -72,69 +61,52 @@
   --select-option-checked-bg: rgb(var(--color-brand-100));
   --select-option-disabled-fg: rgb(var(--color-ink-400));
 
-  --sidebar-border: rgb(var(--color-white) / 0.7);
-  --sidebar-bg: rgb(var(--color-white) / 0.82);
-  --sidebar-bg-light: rgb(var(--color-white) / 0.82);
-  --sidebar-bg-dark: linear-gradient(
-    180deg,
-    rgb(var(--color-brand-800) / 0.18) 0%,
-    rgb(var(--color-ink-900) / 0.08) 100%
-  );
+  --sidebar-border: rgb(var(--color-line) / 0.9);
+  --sidebar-bg: rgb(var(--color-white) / 0.9);
+  --sidebar-bg-light: linear-gradient(180deg, rgb(var(--color-white)) 0%, rgb(var(--color-brand-50) / 0.72) 58%, rgb(var(--color-ink-50)) 100%);
+  --sidebar-bg-dark: transparent;
   --sidebar-glow-top-light:
     radial-gradient(
       circle at 24% 0%,
-      rgb(var(--color-brand-100) / 0.78),
+      rgb(var(--color-brand-200) / 0.62),
       transparent 18rem
     ),
     linear-gradient(
       180deg,
-      rgb(var(--color-brand-100) / 0.52) 0%,
-      rgb(var(--color-brand-50) / 0.28) 36%,
-      rgb(var(--color-white) / 0.08) 72%,
+      rgb(var(--color-brand-100) / 0.48) 0%,
+      rgb(var(--color-brand-50) / 0.24) 36%,
+      transparent 72%,
       transparent 100%
     );
   --sidebar-glow-top-dark:
-    radial-gradient(
-      circle at 20% 0%,
-      rgb(var(--color-brand-400) / 0.24),
-      transparent 17rem
-    ),
-    radial-gradient(
-      circle at 78% 20%,
-      rgb(var(--color-info) / 0.08),
-      transparent 18rem
-    ),
-    linear-gradient(
-      180deg,
-      rgb(var(--color-brand-400) / 0.14) 0%,
-      rgb(var(--color-brand-800) / 0.08) 34%,
-      rgb(var(--color-brand-800) / 0.025) 68%,
-      transparent 100%
-    );
-  --sidebar-glow-bottom-light: rgb(var(--color-brand-300) / 0.3);
-  --sidebar-glow-bottom-dark: rgb(var(--color-brand-800) / 0.16);
+    transparent;
+  --sidebar-glow-bottom-light: rgb(var(--color-brand-300) / 0.18);
+  --sidebar-glow-bottom-dark: transparent;
 
-  --header-border: rgb(var(--color-white) / 0.7);
-  --header-bg: rgb(var(--color-white) / 0.75);
-  --menu-active-border: rgb(var(--color-brand-100) / 0.62);
-  --menu-active-bg: linear-gradient(
-    135deg,
-    rgb(var(--color-white) / 0.9) 0%,
-    rgb(var(--color-brand-50) / 0.52) 100%
-  );
-  --menu-idle-hover-border: rgb(var(--color-white) / 0.86);
-  --menu-idle-hover-bg: rgb(var(--color-white) / 0.72);
-  --menu-active-bar-bg: rgb(var(--color-brand-500) / 0.72);
+  --header-border: rgb(var(--color-brand-200) / 0.56);
+  --header-bg: var(--window-surface);
+  --header-divider: rgb(var(--color-brand-200) / 0.34);
+  --menu-active-border: rgb(var(--color-brand-200));
+  --menu-active-bg: linear-gradient(135deg, rgb(var(--color-brand-50)), rgb(var(--color-brand-100) / 0.68));
+  --menu-idle-hover-border: rgb(var(--color-brand-100));
+  --menu-idle-hover-bg: rgb(var(--color-white) / 0.75);
+  --menu-active-bar-bg: rgb(var(--color-brand-500));
   --menu-hover-bar-bg: rgb(var(--color-brand-300));
-  --menu-icon-active-bg: rgb(var(--color-brand-600) / 0.82);
+  --menu-icon-active-bg: rgb(var(--color-brand-600));
   --menu-icon-idle-bg: rgb(var(--color-ink-100));
-  --menu-icon-idle-hover-bg: rgb(var(--color-brand-50));
-  --menu-active-fg: rgb(var(--color-brand-700));
+  --menu-icon-idle-hover-bg: rgb(var(--color-brand-100));
+  --menu-active-fg: rgb(var(--color-brand-800));
   --menu-idle-fg: rgb(var(--color-ink-600));
   --menu-idle-hover-fg: rgb(var(--color-ink-900));
   --menu-active-bar-shadow: none;
   --menu-icon-idle-fg: rgb(var(--color-ink-500));
   --menu-icon-idle-hover-fg: rgb(var(--color-brand-700));
+  --sidebar-title-fg: rgb(var(--color-ink-900));
+  --sidebar-subtitle-fg: rgb(var(--color-brand-700));
+  --sidebar-status-bg: rgb(var(--color-white) / 0.76);
+  --sidebar-status-border: rgb(var(--color-line));
+  --sidebar-status-title-fg: rgb(var(--color-ink-700));
+  --sidebar-status-copy-fg: rgb(var(--color-ink-500));
 
   --table-header-bg: rgb(var(--color-ink-50) / 0.96);
   --table-header-fg: rgb(var(--color-ink-500));
@@ -180,8 +152,8 @@
   --form-select-disabled-bg: rgb(var(--color-ink-50));
   --form-select-disabled-fg: rgb(var(--color-ink-500));
 
-  --shadow-panel: 0 1px 2px rgb(var(--color-ink-900) / 0.05);
-  --shadow-elevated: 0 16px 40px rgb(var(--color-ink-900) / 0.07);
+  --shadow-panel: 0 1px 2px rgb(var(--color-ink-900) / 0.04), 0 8px 24px rgb(var(--color-ink-900) / 0.035);
+  --shadow-elevated: 0 20px 48px rgb(var(--color-ink-900) / 0.10);
 
   color: var(--app-fg);
   background: var(--app-bg);
@@ -390,12 +362,42 @@ textarea[data-code-editor="true"] {
       box-shadow 320ms ease-out;
   }
 
+  .platform-macos .app-sidebar {
+    /* macOS Overlay 标题栏：让红绿灯区域由侧栏主题背景承接。 */
+    padding-top: var(--mac-titlebar-height);
+  }
+
+  .platform-macos .app-sidebar > .relative:first-of-type {
+    height: 4.5rem;
+  }
+
   .app-sidebar :where(a, span, p, img) {
     transition-property:
       color, background-color, border-color, box-shadow, opacity, transform,
       filter;
     transition-duration: 260ms;
     transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .app-sidebar-brand-title {
+    color: var(--sidebar-title-fg);
+  }
+
+  .app-sidebar-brand-subtitle {
+    color: var(--sidebar-subtitle-fg);
+  }
+
+  .app-sidebar-status {
+    border-color: var(--sidebar-status-border);
+    background-color: var(--sidebar-status-bg);
+  }
+
+  .app-sidebar-status-title {
+    color: var(--sidebar-status-title-fg);
+  }
+
+  .app-sidebar-status-copy {
+    color: var(--sidebar-status-copy-fg);
   }
 
   .app-sidebar-bg,
@@ -934,29 +936,63 @@ textarea[data-code-editor="true"] {
   .mono-tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /* Orbit Command Center: restrained depth, clear data surfaces, no decorative motion. */
+  .app-header {
+    box-shadow: 0 1px 0 var(--header-divider);
+  }
+
+  .app-menu-item {
+    min-height: 44px;
+  }
+
+  .app-menu-item-active {
+    box-shadow: inset 0 1px 0 rgb(var(--color-white) / 0.06), 0 10px 22px rgb(var(--color-black) / 0.12);
+  }
+
+  .panel,
+  .panel-elevated {
+    border-radius: 16px;
+  }
+
+  .panel:hover {
+    border-color: rgb(var(--color-brand-300) / 0.5);
+    box-shadow: 0 12px 30px rgb(var(--color-ink-900) / 0.055);
+  }
+
+  .table-panel {
+    border-radius: 16px;
+  }
+
+  .table-header {
+    letter-spacing: 0.065em;
+  }
+
+  .table-cell {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .control-focus:focus {
+    border-color: rgb(var(--color-brand-500));
+    box-shadow: 0 0 0 4px rgb(var(--color-brand-500) / 0.13), var(--shadow-panel);
+  }
+
+  .empty-state-grid {
+    background-image: radial-gradient(rgb(var(--color-brand-400) / 0.16) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --app-fg: rgb(var(--color-ink-200));
     --app-bg: rgb(var(--color-ink-950));
+    --window-surface: rgb(var(--color-ink-950));
     --app-body-bg:
-      radial-gradient(
-        circle at 12% 0%,
-        rgb(var(--color-brand-800) / 0.18),
-        transparent 30rem
-      ),
-      radial-gradient(
-        circle at 90% 8%,
-        rgb(var(--color-accent) / 0.1),
-        transparent 24rem
-      ),
-      linear-gradient(
-        180deg,
-        rgb(var(--color-ink-950)) 0%,
-        rgb(var(--color-ink-900)) 52%,
-        rgb(var(--color-ink-800) / 0.72) 100%
-      );
+      radial-gradient(circle at 84% -10%, rgb(var(--color-brand-500) / 0.16), transparent 32rem),
+      radial-gradient(circle at 18% 112%, rgb(var(--color-accent) / 0.10), transparent 34rem),
+      linear-gradient(135deg, rgb(var(--color-ink-950)) 0%, rgb(var(--color-ink-900)) 55%, rgb(var(--color-ink-800)) 100%);
     --selection-bg: rgb(var(--color-brand-400) / 0.32);
     --readonly-bg: rgb(var(--color-ink-800) / 0.72);
     --maintenance-card-bg: rgb(var(--color-ink-900) / 0.68);
@@ -967,30 +1003,15 @@ textarea[data-code-editor="true"] {
     --select-option-checked-bg: rgb(var(--color-brand-700));
     --select-option-disabled-fg: rgb(var(--color-ink-500));
 
-    --sidebar-border: rgb(var(--color-brand-400) / 0.16);
-    --sidebar-bg: rgb(var(--color-ink-900));
-    --sidebar-bg-dark: linear-gradient(
-      180deg,
-      rgb(var(--color-ink-900) / 0.96) 0%,
-      rgb(var(--color-ink-900) / 0.94) 36%,
-      rgb(var(--color-ink-950) / 0.9) 100%
-    );
-    --sidebar-glow-top-dark:
-      radial-gradient(
-        circle at 18% 0%,
-        rgb(var(--color-brand-800) / 0.08),
-        transparent 15rem
-      ),
-      linear-gradient(
-        180deg,
-        rgb(var(--color-brand-800) / 0.045) 0%,
-        rgb(var(--color-ink-900) / 0.04) 42%,
-        transparent 100%
-      );
-    --sidebar-glow-bottom-dark: rgb(var(--color-brand-800) / 0.08);
+    --sidebar-border: rgb(var(--color-white) / 0.08);
+    --sidebar-bg: rgb(var(--color-ink-950));
+    --sidebar-bg-dark: linear-gradient(180deg, rgb(var(--color-ink-900)) 0%, rgb(var(--color-ink-950)) 100%);
+    --sidebar-glow-top-dark: linear-gradient(180deg, rgb(var(--color-brand-800) / 0.30) 0%, transparent 42%);
+    --sidebar-glow-bottom-dark: rgb(var(--color-brand-500) / 0.13);
 
-    --header-border: rgb(var(--color-ink-500) / 0.34);
-    --header-bg: rgb(var(--color-ink-900) / 0.72);
+    --header-border: rgb(var(--color-ink-400) / 0.12);
+    --header-bg: var(--window-surface);
+    --header-divider: rgb(var(--color-brand-400) / 0.11);
     --menu-active-border: rgb(var(--color-brand-400) / 0.22);
     --menu-active-bg:
       radial-gradient(
@@ -1003,13 +1024,13 @@ textarea[data-code-editor="true"] {
         rgb(var(--color-brand-800) / 0.1) 0%,
         rgb(var(--color-ink-900) / 0.78) 100%
       );
-    --menu-active-fg: rgb(var(--color-brand-300));
+    --menu-active-fg: rgb(var(--color-white));
     --menu-idle-fg: rgb(var(--color-ink-300));
     --menu-idle-hover-border: rgb(var(--color-brand-400) / 0.24);
     --menu-idle-hover-bg: rgb(var(--color-ink-800) / 0.66);
     --menu-idle-hover-fg: rgb(var(--color-ink-50));
     --menu-active-bar-bg: rgb(var(--color-brand-400) / 0.62);
-    --menu-active-bar-shadow: none;
+    --menu-active-bar-shadow: 0 0 16px rgb(var(--color-brand-300) / 0.7);
     --menu-hover-bar-bg: rgb(var(--color-brand-300) / 0.8);
     --menu-icon-active-bg: linear-gradient(
       135deg,
@@ -1020,6 +1041,12 @@ textarea[data-code-editor="true"] {
     --menu-icon-idle-fg: rgb(var(--color-ink-400));
     --menu-icon-idle-hover-bg: rgb(var(--color-brand-800) / 0.16);
     --menu-icon-idle-hover-fg: rgb(var(--color-brand-100));
+    --sidebar-title-fg: rgb(var(--color-white));
+    --sidebar-subtitle-fg: rgb(var(--color-brand-200));
+    --sidebar-status-bg: rgb(var(--color-white) / 0.055);
+    --sidebar-status-border: rgb(var(--color-white) / 0.10);
+    --sidebar-status-title-fg: rgb(var(--color-ink-200));
+    --sidebar-status-copy-fg: rgb(var(--color-ink-400));
 
     --table-header-bg: rgb(var(--color-ink-800));
     --table-header-fg: rgb(var(--color-ink-300));

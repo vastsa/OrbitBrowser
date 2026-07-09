@@ -2432,7 +2432,7 @@ log.info("message");
           </div>
         </section>
       ) : (
-      <div className="grid h-full min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_360px] gap-3">
         <section className="panel grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
           <div ref={scrollRef} className="scroll-panel min-w-0 p-4">
             {messages.length === 0 ? (

@@ -23,7 +23,14 @@
         "maximizable": true,
         "minimizable": true,
         "closable": true,
-        "visible": true
+        "visible": true,
+        "backgroundColor": "#F7F9FC",
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 18
+        },
+        "hiddenTitle": true
       }
     ],
     "security": {

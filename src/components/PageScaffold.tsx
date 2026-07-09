@@ -22,14 +22,14 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <section className="panel-elevated shrink-0 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/70 bg-white/70 px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/70 bg-white/70 px-5 py-4">
         <div className="min-w-0">
           {eyebrow ? (
             <p className="text-xs font-semibold uppercase tracking-normal text-brand-600">
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="truncate text-base font-semibold tracking-tight text-ink-900">
+          <h2 className="truncate text-lg font-bold tracking-[-0.025em] text-ink-900">
             {title}
           </h2>
           {subtitle ? (
@@ -73,11 +73,11 @@ export function MetricTile({
   value,
 }: MetricTileProps) {
   return (
-    <div className="min-w-0 bg-white/72 px-4 py-2.5">
+    <div className="min-w-0 bg-white/72 px-5 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-ink-500">{label}</p>
-          <p className="mono-tabular truncate text-lg font-semibold leading-tight tracking-tight text-ink-900">
+          <p className="mono-tabular truncate text-xl font-bold leading-tight tracking-[-0.025em] text-ink-900">
             {value}
           </p>
         </div>

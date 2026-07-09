@@ -1,10 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { queryClient } from "@/app/queryClient";
 import { Layout } from "@/components/Layout";
+import { isTauriRuntime } from "@/lib/tauri";
 import { AgentPage } from "@/pages/AgentPage";
 import { DiagnosticsPage } from "@/pages/DiagnosticsPage";
 import { EnvironmentsPage } from "@/pages/EnvironmentsPage";
@@ -13,6 +15,30 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TaskDetailPage, TasksPage } from "@/pages/TasksPage";
 
 export function App() {
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncWindowBackground = (isDark: boolean) => {
+      const color: [number, number, number, number] = isDark
+        ? [10, 18, 33, 255]
+        : [247, 249, 252, 255];
+      void getCurrentWindow().setBackgroundColor(color).catch(() => undefined);
+    };
+    const handleColorSchemeChange = (event: MediaQueryListEvent) => {
+      syncWindowBackground(event.matches);
+    };
+
+    syncWindowBackground(colorScheme.matches);
+    colorScheme.addEventListener("change", handleColorSchemeChange);
+
+    return () => {
+      colorScheme.removeEventListener("change", handleColorSchemeChange);
+    };
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];

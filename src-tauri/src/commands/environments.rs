@@ -14,7 +14,8 @@ use crate::errors::{AppError, AppResult};
 use crate::storage::{environment_repo, legacy_cleanup, run_repo, settings_repo};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tauri::State;
@@ -55,6 +56,7 @@ struct RuntimeFingerprint {
     geolocation: Option<GeolocationOverride>,
     user_agent: Option<String>,
     platform: Option<String>,
+    user_agent_metadata: Option<Value>,
     masked_fonts: Vec<String>,
 }
 
@@ -170,7 +172,7 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
                 apply_and_watch_runtime(session.cdp_port, runtime_fingerprint).await;
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
@@ -210,7 +212,7 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
                 apply_and_watch_runtime(record.cdp_port, runtime_fingerprint).await;
                 state.sessions().upsert(BrowserSession {
                     environment_id: id.clone(),
@@ -262,7 +264,7 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
                 apply_and_watch_runtime(lock.cdp_port, runtime_fingerprint).await;
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
@@ -282,7 +284,8 @@ async fn start_environment_inner_with_options(
         settings.chrome_path.as_deref(),
     )?;
     let cdp_port = port_allocator::allocate()?;
-    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
+    let chrome_version = chrome_locator::version(Path::new(&chrome_path));
+    let runtime_fingerprint = resolve_runtime_fingerprint(&env, chrome_version.as_deref()).await;
     let launch_options = chrome_args::ChromeRuntimeOptions {
         locale: runtime_fingerprint.locale.clone(),
         accept_language: runtime_fingerprint.accept_language.clone(),
@@ -519,7 +522,10 @@ pub async fn test_environment_proxy(
     })
 }
 
-async fn resolve_runtime_fingerprint(env: &Environment) -> RuntimeFingerprint {
+async fn resolve_runtime_fingerprint(
+    env: &Environment,
+    chrome_version: Option<&str>,
+) -> RuntimeFingerprint {
     let configured_timezone_id = normalize_optional_text(env.timezone_id.clone());
     let configured_locale = normalize_optional_text(Some(env.locale.clone()));
     let needs_ip_probe = is_auto_timezone(configured_timezone_id.as_deref())
@@ -560,10 +566,20 @@ async fn resolve_runtime_fingerprint(env: &Environment) -> RuntimeFingerprint {
         .unwrap_or(locale_profile.accept_language)
         .to_string();
     let geolocation = resolve_runtime_geolocation(env, probe.as_ref());
-    let user_agent = normalize_optional_text(env.user_agent.clone())
+    let generated_user_agent = generate_user_agent(chrome_version);
+    let configured_user_agent = normalize_optional_text(env.user_agent.clone())
         .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+    let (user_agent, user_agent_metadata) = if let Some(user_agent) = configured_user_agent {
+        (Some(user_agent), None)
+    } else {
+        (
+            generated_user_agent.user_agent,
+            generated_user_agent.user_agent_metadata,
+        )
+    };
     let platform = normalize_optional_text(env.platform.clone())
-        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID))
+        .or(generated_user_agent.platform);
     let masked_fonts = chinese_font_mask_for_locale(&locale);
 
     RuntimeFingerprint {
@@ -573,6 +589,7 @@ async fn resolve_runtime_fingerprint(env: &Environment) -> RuntimeFingerprint {
         geolocation,
         user_agent,
         platform,
+        user_agent_metadata,
         masked_fonts,
     }
 }
@@ -856,6 +873,127 @@ fn chinese_font_mask_for_locale(locale: &str) -> Vec<String> {
     .collect()
 }
 
+#[derive(Debug, Clone)]
+struct GeneratedUserAgent {
+    user_agent: Option<String>,
+    platform: Option<String>,
+    user_agent_metadata: Option<Value>,
+}
+
+type ChromeVersionTuple = (u16, u16, u16, u16);
+
+fn generate_user_agent(chrome_version: Option<&str>) -> GeneratedUserAgent {
+    let Some(version) = parse_chrome_version(chrome_version) else {
+        return GeneratedUserAgent {
+            user_agent: None,
+            platform: None,
+            user_agent_metadata: None,
+        };
+    };
+    let full_version = format!("{}.{}.{}.{}", version.0, version.1, version.2, version.3);
+    let major = version.0.to_string();
+    let os = runtime_os_profile();
+    let user_agent = format!(
+        "Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36",
+        os.ua_platform, full_version
+    );
+    let user_agent_metadata = json!({
+        "brands": [
+            { "brand": "Not A(Brand", "version": "99" },
+            { "brand": "Google Chrome", "version": major },
+            { "brand": "Chromium", "version": major }
+        ],
+        "fullVersionList": [
+            { "brand": "Not A(Brand", "version": "99.0.0.0" },
+            { "brand": "Google Chrome", "version": full_version },
+            { "brand": "Chromium", "version": full_version }
+        ],
+        "fullVersion": full_version,
+        "platform": os.metadata_platform,
+        "platformVersion": os.platform_version,
+        "architecture": os.architecture,
+        "bitness": os.bitness,
+        "model": "",
+        "mobile": false,
+        "wow64": false
+    });
+
+    GeneratedUserAgent {
+        user_agent: Some(user_agent),
+        platform: Some(os.navigator_platform.to_string()),
+        user_agent_metadata: Some(user_agent_metadata),
+    }
+}
+
+fn parse_chrome_version(version_text: Option<&str>) -> Option<ChromeVersionTuple> {
+    let version_text = version_text?;
+    version_text
+        .split_whitespace()
+        .find_map(|part| parse_version_tuple(part))
+}
+
+fn parse_version_tuple(value: &str) -> Option<ChromeVersionTuple> {
+    let mut parts = value.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let build = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, build, patch))
+}
+
+struct RuntimeOsProfile {
+    ua_platform: &'static str,
+    navigator_platform: &'static str,
+    metadata_platform: &'static str,
+    platform_version: String,
+    architecture: &'static str,
+    bitness: &'static str,
+}
+
+fn runtime_os_profile() -> RuntimeOsProfile {
+    if cfg!(target_os = "macos") {
+        return RuntimeOsProfile {
+            ua_platform: "Macintosh; Intel Mac OS X 10_15_7",
+            navigator_platform: "MacIntel",
+            metadata_platform: "macOS",
+            platform_version: random_choice(&["13.6.0", "14.4.0", "14.5.0", "14.6.0", "15.0.0"])
+                .to_string(),
+            architecture: if cfg!(target_arch = "aarch64") {
+                "arm"
+            } else {
+                "x86"
+            },
+            bitness: "64",
+        };
+    }
+    if cfg!(target_os = "windows") {
+        return RuntimeOsProfile {
+            ua_platform: "Windows NT 10.0; Win64; x64",
+            navigator_platform: "Win32",
+            metadata_platform: "Windows",
+            platform_version: random_choice(&["10.0.0", "13.0.0", "15.0.0"]).to_string(),
+            architecture: "x86",
+            bitness: "64",
+        };
+    }
+    RuntimeOsProfile {
+        ua_platform: "X11; Linux x86_64",
+        navigator_platform: "Linux x86_64",
+        metadata_platform: "Linux",
+        platform_version: random_choice(&["", "5.15.0", "6.1.0", "6.6.0"]).to_string(),
+        architecture: "x86",
+        bitness: "64",
+    }
+}
+
+fn random_choice<'a>(values: &'a [&str]) -> &'a str {
+    if values.is_empty() {
+        return "";
+    }
+    let index = uuid::Uuid::new_v4().as_u128() as usize % values.len();
+    values[index]
+}
+
 async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint) {
     let overrides = BrowserRuntimeOverrides::new(
         fingerprint.timezone_id,
@@ -864,7 +1002,7 @@ async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint)
         fingerprint.user_agent,
         Some(fingerprint.accept_language),
         fingerprint.platform,
-        None,
+        fingerprint.user_agent_metadata,
         fingerprint.masked_fonts,
     );
     if let Err(err) = timezone_controller::apply_existing(cdp_port, overrides.clone()).await {
@@ -1114,10 +1252,32 @@ mod tests {
     }
 
     #[test]
-    fn locale_lookup_is_case_tolerant() {
+    fn chrome_version_parser_and_locale_lookup_are_tolerant() {
+        assert_eq!(
+            parse_chrome_version(Some("Google Chrome 126.0.6478.127")),
+            Some((126, 0, 6478, 127))
+        );
         assert_eq!(
             accept_language_for_locale("zh-cn"),
             Some("zh-CN,zh;q=0.9,en;q=0.8")
+        );
+    }
+
+    #[test]
+    fn generated_user_agent_preserves_full_chrome_version() {
+        let generated = generate_user_agent(Some("Google Chrome 126.0.6478.127"));
+
+        assert!(generated
+            .user_agent
+            .as_deref()
+            .is_some_and(|value| value.contains("Chrome/126.0.6478.127")));
+        assert_eq!(
+            generated
+                .user_agent_metadata
+                .as_ref()
+                .and_then(|value| value.get("fullVersion"))
+                .and_then(serde_json::Value::as_str),
+            Some("126.0.6478.127")
         );
     }
 

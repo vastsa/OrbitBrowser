@@ -423,7 +423,7 @@ export function TaskDetailPage() {
 
   return (
     <div className="viewport-page grid-rows-[minmax(0,1fr)]">
-      <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-4 pr-1 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:pr-0">
+      <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-4 pr-1 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:items-start 2xl:pr-0">
         <div className="grid min-w-0 content-start gap-4">
           <section className="panel p-4">
             <SectionHeader

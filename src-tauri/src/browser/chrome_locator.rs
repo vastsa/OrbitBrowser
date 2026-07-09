@@ -213,7 +213,7 @@ pub fn resolve(override_path: Option<&str>, settings_path: Option<&str>) -> AppR
     })
 }
 
-fn version(path: &Path) -> Option<String> {
+pub fn version(path: &Path) -> Option<String> {
     const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
     let mut command = Command::new(path);
