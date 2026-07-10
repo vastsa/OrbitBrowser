@@ -358,7 +358,7 @@ export function SettingsPage() {
 
   return (
     <div className="scroll-panel h-full min-h-0 w-full pr-1">
-      <section className="panel mx-auto max-w-5xl overflow-hidden">
+      <section className="panel mx-auto max-w-6xl overflow-hidden">
         {(settingsQuery.error ||
           saveMutation.error ||
           detectMutation.error ||
