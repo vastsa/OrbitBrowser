@@ -112,8 +112,9 @@
   --form-select-bg: rgb(var(--color-white));
   --form-select-fg: rgb(var(--color-ink-900));
   --form-select-border: rgb(var(--color-line));
-  --form-select-disabled-bg: rgb(var(--color-ink-50));
-  --form-select-disabled-fg: rgb(var(--color-ink-500));
+  --form-control-disabled-bg: rgb(var(--color-ink-50));
+  --form-control-disabled-fg: rgb(var(--color-ink-500));
+  --form-control-disabled-border: rgb(var(--color-line));
 
   --shadow-panel: 0 1px 2px rgb(var(--color-ink-900) / 0.05);
 
@@ -288,6 +289,25 @@ select:disabled,
 input:disabled,
 textarea:disabled {
   cursor: not-allowed;
+}
+
+input:disabled:not([type="checkbox"]):not([type="radio"]),
+select:disabled,
+textarea:disabled,
+.form-control:disabled,
+.form-select-control:disabled {
+  border-color: var(--form-control-disabled-border);
+  background-color: var(--form-control-disabled-bg);
+  color: var(--form-control-disabled-fg);
+  -webkit-text-fill-color: var(--form-control-disabled-fg);
+  caret-color: transparent;
+  opacity: 1;
+}
+
+input:disabled::placeholder,
+textarea:disabled::placeholder {
+  color: var(--form-control-disabled-fg);
+  opacity: 1;
 }
 
 button,
@@ -993,11 +1013,6 @@ textarea[data-code-editor="true"] {
     color: var(--form-select-fg);
   }
 
-  .form-select-control:disabled {
-    background-color: var(--form-select-disabled-bg);
-    color: var(--form-select-disabled-fg);
-  }
-
   .mono-tabular {
     font-variant-numeric: tabular-nums;
   }
@@ -1102,8 +1117,9 @@ textarea[data-code-editor="true"] {
     --form-select-bg: rgb(var(--color-ink-900) / 0.86);
     --form-select-fg: rgb(var(--color-ink-200));
     --form-select-border: rgb(var(--color-ink-500) / 0.48);
-    --form-select-disabled-bg: rgb(var(--color-ink-800) / 0.72);
-    --form-select-disabled-fg: rgb(var(--color-ink-400));
+    --form-control-disabled-bg: rgb(var(--color-ink-800) / 0.72);
+    --form-control-disabled-fg: rgb(var(--color-ink-400));
+    --form-control-disabled-border: rgb(var(--color-ink-500) / 0.4);
 
     --shadow-panel: 0 1px 2px rgb(var(--color-black) / 0.32);
 
@@ -1140,11 +1156,6 @@ textarea[data-code-editor="true"] {
     background-color: var(--agent-surface-bg);
     border-color: rgb(var(--color-ink-500) / 0.4);
     color: rgb(var(--color-ink-200));
-  }
-
-  select:disabled {
-    background-color: var(--form-select-disabled-bg);
-    color: var(--form-select-disabled-fg);
   }
 
   .text-ink-700,
