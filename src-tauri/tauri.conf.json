@@ -48,6 +48,8 @@
       "icons/icon.ico"
     ],
     "publisher": "Orbit Browser contributors",
+    "homepage": "https://github.com/vastsa/OrbitBrowser",
+    "copyright": "Copyright (c) 2026 Orbit Browser contributors",
     "category": "DeveloperTool",
     "shortDescription": "Local browser runtime orchestrator",
     "longDescription": "Orbit Browser manages isolated Chrome profiles, proxies, automation tasks, and local execution history."

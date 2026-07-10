@@ -275,6 +275,13 @@ Do not commit generated runtime files, including:
 The release workflow builds desktop bundles for macOS, Windows, and Linux when a
 version tag is pushed.
 
+- Windows: download `-setup.exe` and run new versions directly without manually
+  uninstalling the previous release.
+- macOS: download the matching `.dmg` and drag the app to Applications.
+- Linux: choose AppImage, deb, or rpm; deb and rpm support package-manager upgrades.
+
+Normal upgrades preserve environments, tasks, browser profiles, and run history.
+
 ```bash
 git tag v0.3.2
 git push origin v0.3.2

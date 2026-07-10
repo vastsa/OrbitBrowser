@@ -81,6 +81,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Verify application version
+        run: node scripts/check-version.mjs
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
@@ -109,7 +112,16 @@ jobs:
         id: release
         uses: actions/github-script@v7
         env:
-          RELEASE_BODY: Multi-platform desktop bundles for macOS, Windows, and Linux.
+          RELEASE_BODY: |
+            ## 安装 / Install
+
+            - **Windows（推荐）**：下载 `windows-*-setup.exe`。首次安装和后续升级都直接运行安装程序，无需手动卸载旧版。曾使用 `.msi` 的用户会在首次切换时完成一次迁移。
+            - **macOS**：按芯片下载对应 `.dmg`，打开后将 Orbit Browser 拖到 Applications。升级时直接替换旧应用。
+            - **Debian / Ubuntu**：下载 `.deb`，使用 `sudo apt install ./<package>.deb` 安装或升级。
+            - **Fedora / RHEL**：下载 `.rpm`，使用 `sudo rpm -U <package>.rpm` 安装或升级。
+            - **其他 Linux**：下载 `.AppImage`，添加执行权限后直接运行；升级时替换旧文件。
+
+            Orbit 的环境、任务、Profile 和运行记录保存在独立的数据目录中，正常覆盖升级不会删除这些数据。
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -246,6 +258,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_targets }}
+
+      - name: Verify application version
+        run: node scripts/check-version.mjs
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2

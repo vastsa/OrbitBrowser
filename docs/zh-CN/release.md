@@ -31,11 +31,20 @@ Release asset 命名规则：
 orbit-browser-<tag>-<platform>-<arch><setup><ext>
 ```
 
-具体 bundle 类型由 Tauri 在各平台 runner 上生成，通常包含：
+具体 bundle 类型由平台配置固定为：
 
-- macOS：`.dmg` 和 `.app` 产物。
-- Windows：`.msi` 和 `.exe` 产物。
-- Linux：AppImage、deb 或 rpm 产物。
+- macOS：`.dmg`。打开后将应用拖到 Applications，升级时直接替换。
+- Windows：NSIS `-setup.exe`。同为 NSIS 的旧版本会直接覆盖升级，不需要先
+  手动卸载；历史 MSI 用户首次切换时会完成一次迁移。
+- Linux：AppImage、deb 和 rpm。AppImage 通过替换文件升级，deb 使用
+  `apt install ./<package>.deb`，rpm 使用 `rpm -U <package>.rpm`。
+
+Windows 面向普通用户只发布 NSIS，避免 `.msi` 与 `.exe` 混用产生重复安装项。
+安装范围为当前用户，不需要管理员权限。安装器会跟随系统语言显示简体中文或
+英文，并阻止旧版本覆盖新版本。
+
+应用数据保存在系统数据目录下的 `com.orbit.browser` 中，与应用安装目录分离。
+正常覆盖升级会保留环境、任务、Profile 和运行记录。
 
 实验性矩阵项允许失败，不会阻塞最终 Release 发布。必需矩阵项必须通过，
 draft Release 才会被正式发布。
@@ -45,6 +54,7 @@ draft Release 才会被正式发布。
 发布前确认：
 
 - `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 版本一致。
+- `pnpm check:version` 通过，且发布 tag 与应用版本一致。
 - `CHANGELOG.md` 已更新。
 - 本地或 CI 中 `pnpm build`、`pnpm test:rust` 通过。
 - 不提交 Profile、Cookie、截图、数据库、代理凭据或运行产物。

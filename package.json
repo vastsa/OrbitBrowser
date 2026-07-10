@@ -16,7 +16,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "check": "pnpm build && pnpm test:rust",
+    "check:version": "node scripts/check-version.mjs",
+    "check": "pnpm check:version && pnpm build && pnpm test:rust",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:build": "tauri build",

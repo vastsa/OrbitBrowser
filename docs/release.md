@@ -33,12 +33,22 @@ Release asset names follow this pattern:
 orbit-browser-<tag>-<platform>-<arch><setup><ext>
 ```
 
-The exact bundle types are produced by Tauri on each runner and commonly
-include:
+Platform-specific configuration fixes the bundle types to:
 
-- macOS: `.dmg` and `.app` outputs.
-- Windows: `.msi` and `.exe` outputs.
-- Linux: AppImage, deb, or rpm outputs.
+- macOS: `.dmg`. Drag the app to Applications and replace it on upgrade.
+- Windows: NSIS `-setup.exe`. Existing NSIS installations are upgraded in
+  place; users migrating from a historical MSI complete one migration step.
+- Linux: AppImage, deb, and rpm. Replace an AppImage, use
+  `apt install ./<package>.deb`, or use `rpm -U <package>.rpm` to upgrade.
+
+Windows publishes one installer format for regular users to prevent mixed MSI
+and NSIS installations. It installs for the current user without elevation,
+uses the operating system's Simplified Chinese or English language, and blocks
+older packages from overwriting newer versions.
+
+Application data lives in the system data directory under
+`com.orbit.browser`, separately from installed application files. A normal
+in-place upgrade preserves environments, tasks, profiles, and run history.
 
 Experimental matrix entries are allowed to fail without blocking the final
 Release publication. Required matrix entries must pass before the draft Release
@@ -49,6 +59,7 @@ is published.
 Before releasing:
 
 - Versions in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` match.
+- `pnpm check:version` passes and the release tag matches the application version.
 - `CHANGELOG.md` is updated.
 - `pnpm build` and `pnpm test:rust` pass locally or in CI.
 - Profiles, cookies, screenshots, databases, proxy credentials, and run artifacts are not committed.
