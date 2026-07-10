@@ -16,6 +16,38 @@ import { TaskDetailPage, TasksPage } from "@/pages/TasksPage";
 
 export function App() {
   useEffect(() => {
+    const splash = document.getElementById("startup-splash");
+    if (!splash) {
+      return;
+    }
+
+    const startupWindow = window as Window & {
+      __ORBIT_STARTUP_AT__?: number;
+    };
+    const startedAt = startupWindow.__ORBIT_STARTUP_AT__ ?? performance.now();
+    const minimumVisibleDuration = 620;
+    const elapsed = performance.now() - startedAt;
+    let removeTimer = 0;
+    let leaveTimer = 0;
+    let frame = 0;
+
+    frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        leaveTimer = window.setTimeout(() => {
+          splash.classList.add("is-leaving");
+          removeTimer = window.setTimeout(() => splash.remove(), 300);
+        }, Math.max(0, minimumVisibleDuration - elapsed));
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(leaveTimer);
+      window.clearTimeout(removeTimer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isTauriRuntime()) {
       return;
     }
@@ -23,8 +55,8 @@ export function App() {
     const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
     const syncWindowBackground = (isDark: boolean) => {
       const color: [number, number, number, number] = isDark
-        ? [10, 18, 33, 255]
-        : [247, 249, 252, 255];
+        ? [20, 20, 22, 255]
+        : [244, 245, 247, 255];
       void getCurrentWindow().setBackgroundColor(color).catch(() => undefined);
     };
     const handleColorSchemeChange = (event: MediaQueryListEvent) => {

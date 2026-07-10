@@ -21,19 +21,21 @@ export function PageHeader({
   title,
 }: PageHeaderProps) {
   return (
-    <section className="panel-elevated shrink-0 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/70 bg-white/70 px-5 py-4">
+    <section className="shrink-0 overflow-hidden rounded-xl border border-line bg-white">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-4 bg-white px-5 py-4 ${metrics ? "border-b border-line" : ""}`}
+      >
         <div className="min-w-0">
           {eyebrow ? (
-            <p className="text-xs font-semibold uppercase tracking-normal text-brand-600">
+            <p className="mb-1 text-xs font-medium text-ink-500">
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="truncate text-lg font-bold tracking-[-0.025em] text-ink-900">
+          <h2 className="text-xl font-semibold tracking-[-0.02em] text-ink-900">
             {title}
           </h2>
           {subtitle ? (
-            <p className="hidden max-w-3xl truncate text-sm text-ink-500 md:block">
+            <p className="mt-1 max-w-3xl text-sm leading-5 text-ink-500">
               {subtitle}
             </p>
           ) : null}
@@ -43,7 +45,7 @@ export function PageHeader({
         ) : null}
       </div>
       {metrics ? (
-        <div className="hidden gap-px bg-white/70 sm:grid sm:grid-cols-2 xl:grid-cols-4">
+        <div className="hidden gap-px bg-line sm:grid sm:grid-cols-2 xl:grid-cols-4">
           {metrics}
         </div>
       ) : null}
@@ -59,11 +61,11 @@ interface MetricTileProps {
 }
 
 const metricToneClass: Record<NonNullable<MetricTileProps["tone"]>, string> = {
-  amber: "bg-amber-50 text-warn",
-  blue: "bg-brand-50 text-brand-600",
-  cyan: "bg-teal-50 text-accent",
-  green: "bg-green-50 text-ok",
-  slate: "bg-ink-100 text-ink-700",
+  amber: "border-warn/15 bg-amber-50 text-warn",
+  blue: "border-brand-500/15 bg-brand-50 text-brand-600",
+  cyan: "border-brand-500/15 bg-brand-50 text-brand-600",
+  green: "border-ok/15 bg-green-50 text-ok",
+  slate: "border-line bg-ink-50 text-ink-600",
 };
 
 export function MetricTile({
@@ -73,17 +75,17 @@ export function MetricTile({
   value,
 }: MetricTileProps) {
   return (
-    <div className="min-w-0 bg-white/72 px-5 py-3">
+    <div className="min-w-0 bg-white px-5 py-3.5">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-ink-500">{label}</p>
-          <p className="mono-tabular truncate text-xl font-bold leading-tight tracking-[-0.025em] text-ink-900">
+          <p className="mono-tabular truncate text-xl font-semibold leading-tight tracking-[-0.02em] text-ink-900">
             {value}
           </p>
         </div>
         {icon ? (
           <div
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${metricToneClass[tone]}`}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${metricToneClass[tone]}`}
           >
             {icon}
           </div>
@@ -128,7 +130,7 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
     >
       {Array.from({ length: rows }).map((_, index) => (
         <div
-          className="h-12 animate-pulse rounded-md border border-line bg-ink-50"
+          className="h-12 animate-pulse rounded-lg bg-ink-50"
           key={index}
         />
       ))}
@@ -189,27 +191,29 @@ export function TablePagination({
             </option>
           ))}
         </SelectControl>
-        <span className="mono-tabular rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">
+        <span className="mono-tabular inline-flex h-9 items-center rounded-lg border border-line bg-white px-3 text-xs font-medium text-ink-600">
           {labels.page
             .replace("{{current}}", String(safePageIndex + 1))
             .replace("{{total}}", String(totalPages))}
         </span>
         <Button
           aria-label={labels.previous}
-          className="h-8 px-2"
+          className="w-9 px-0"
           disabled={safePageIndex === 0}
           icon={<ChevronLeft className="h-4 w-4" />}
           onClick={() => onPageIndexChange(Math.max(0, safePageIndex - 1))}
+          size="sm"
           variant="ghost"
         />
         <Button
           aria-label={labels.next}
-          className="h-8 px-2"
+          className="w-9 px-0"
           disabled={safePageIndex >= totalPages - 1}
           icon={<ChevronRight className="h-4 w-4" />}
           onClick={() =>
             onPageIndexChange(Math.min(totalPages - 1, safePageIndex + 1))
           }
+          size="sm"
           variant="ghost"
         />
       </div>

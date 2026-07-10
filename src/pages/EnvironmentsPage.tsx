@@ -443,6 +443,23 @@ export function EnvironmentsPage() {
   const setGroup = useUiStore((state) => state.setEnvironmentGroup);
   const setTag = useUiStore((state) => state.setEnvironmentTag);
   const setHeaderActions = useUiStore((state) => state.setHeaderActions);
+  const copyEnvironmentId = async (environmentId: string) => {
+    try {
+      await navigator.clipboard.writeText(environmentId);
+      return;
+    } catch {
+      // Tauri WebView 未授权剪贴板时，回退到浏览器原生命令。
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = environmentId;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  };
 
   const environmentsQuery = useQuery({
     queryKey: ["environments"],
@@ -823,17 +840,17 @@ export function EnvironmentsPage() {
   useEffect(() => {
     setHeaderActions(
       <>
-        <div className="hidden items-center gap-1.5 xl:flex">
-          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+        <div className="hidden items-center divide-x divide-line rounded-md border border-line bg-ink-50 px-1 text-xs text-ink-500 xl:flex">
+          <span className="px-2.5 py-1.5">
             {text.metrics.total}: {environments.length}
           </span>
-          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+          <span className="px-2.5 py-1.5">
             {text.metrics.running}: {runningCount}
           </span>
-          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+          <span className="px-2.5 py-1.5">
             {text.metrics.healthy}: {healthyCount}/{environments.length}
           </span>
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-warn">
+          <span className="px-2.5 py-1.5">
             {text.metrics.proxied}: {proxiedCount}
           </span>
         </div>
@@ -873,9 +890,9 @@ export function EnvironmentsPage() {
 
   return (
     <div className="viewport-page grid-rows-[auto_minmax(0,1fr)]">
-      <section className="panel shrink-0 p-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[220px] flex-1">
+      <section className="panel shrink-0 overflow-hidden p-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative min-w-[240px] flex-1 md:max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-500" />
             <input
               className="control-focus h-9 w-full rounded-md border border-line bg-white pl-9 pr-3 text-sm"
@@ -909,7 +926,7 @@ export function EnvironmentsPage() {
             ))}
           </SelectControl>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+        <div className="-mx-3 -mb-3 mt-3 flex flex-wrap items-center gap-2 border-t border-line bg-ink-50 px-3 py-2.5">
           <Button
             icon={
               allFilteredSelected ? (
@@ -931,7 +948,7 @@ export function EnvironmentsPage() {
               ? text.bulk.clearFiltered
               : text.bulk.selectFiltered}
           </Button>
-          <span className="text-xs font-medium text-ink-500">
+          <span className="mr-auto text-xs font-medium text-ink-500">
             {format(text.bulk.selected, { count: selectedCount })}
           </span>
           <Button
@@ -1093,7 +1110,7 @@ export function EnvironmentsPage() {
                         </td>
                         <td className="table-cell">
                           <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink-100 text-ink-500">
                               <Globe2 className="h-4 w-4" />
                             </div>
                             <div className="min-w-0">
@@ -1104,7 +1121,7 @@ export function EnvironmentsPage() {
                                 {normalizeTags(environment).length > 0 ? (
                                   normalizeTags(environment).map((item) => (
                                     <span
-                                      className="rounded bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500"
+                                      className="rounded-[4px] bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500"
                                       key={item}
                                     >
                                       {item}
@@ -1153,10 +1170,10 @@ export function EnvironmentsPage() {
                         </td>
                         <td className="table-cell text-ink-700">
                           <div
-                            className={`max-w-44 truncate rounded-md px-2 py-1 text-xs font-medium ${
+                            className={`inline-flex max-w-44 truncate rounded-[5px] border px-2 py-1 text-xs font-medium ${
                               health?.ok
-                                ? "bg-green-50 text-ok"
-                                : "bg-amber-50 text-warn"
+                                ? "border-green-200 bg-green-50 text-ok"
+                                : "border-amber-200 bg-amber-50 text-warn"
                             }`}
                             title={health?.message}
                           >
@@ -1225,6 +1242,16 @@ export function EnvironmentsPage() {
                               variant="ghost"
                             />
                             <Button
+                              aria-label={text.actions.copyId}
+                              className="h-7 px-1.5"
+                              icon={<Copy className="h-4 w-4" />}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void copyEnvironmentId(environment.id);
+                              }}
+                              variant="ghost"
+                            />
+                            <Button
                               aria-label={copy.common.edit}
                               className="h-7 px-1.5"
                               icon={<Edit2 className="h-4 w-4" />}
@@ -1235,7 +1262,7 @@ export function EnvironmentsPage() {
                               aria-label={text.actions.duplicate}
                               className="h-7 px-1.5"
                               disabled={busy}
-                              icon={<Copy className="h-4 w-4" />}
+                              icon={<SquareStack className="h-4 w-4" />}
                               onClick={() =>
                                 duplicateMutation.mutate(environment.id)
                               }
@@ -1317,7 +1344,7 @@ export function EnvironmentsPage() {
             placeholder={importPlaceholder}
             value={importText}
           />
-          <div className="grid gap-2 rounded-lg border border-line bg-ink-50 p-3 text-sm">
+          <div className="grid gap-2 rounded-md border border-line bg-ink-50 p-3 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium text-ink-900">
                 {text.bulk.importPreview}
@@ -1336,7 +1363,7 @@ export function EnvironmentsPage() {
             <div className="grid max-h-48 gap-1 overflow-auto">
               {importPreview.drafts.slice(0, 20).map((draft) => (
                 <div
-                  className="flex items-center justify-between gap-3 rounded bg-white px-2 py-1"
+                  className="flex items-center justify-between gap-3 rounded-[4px] bg-white px-2 py-1"
                   key={`${draft.id ?? draft.name}-${draft.name}`}
                 >
                   <span className="truncate text-ink-800">{draft.name}</span>
@@ -1459,7 +1486,7 @@ export function EnvironmentsPage() {
         onClose={() => setDeleteTarget(null)}
       >
         <p className="text-sm leading-6 text-ink-700">{text.deleteBody}</p>
-        <p className="mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
+        <p className="mt-3 truncate rounded-md border border-line bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.name}
         </p>
       </Modal>
@@ -1548,7 +1575,7 @@ function EnvironmentModal({
           </div>
         ) : null}
 
-        <section className="grid gap-3">
+        <section className="grid gap-3 border-b border-line pb-5">
           <h3 className="text-sm font-semibold text-ink-900">
             {text.sections.basics}
           </h3>
@@ -1588,7 +1615,7 @@ function EnvironmentModal({
           />
         </section>
 
-        <section className="grid gap-3">
+        <section className="grid gap-3 border-b border-line pb-5">
           <h3 className="text-sm font-semibold text-ink-900">
             {text.sections.browser}
           </h3>
@@ -1645,7 +1672,7 @@ function EnvironmentModal({
           </label>
         </section>
 
-        <section className="grid gap-3">
+        <section className="grid gap-3 border-b border-line pb-5">
           <h3 className="text-sm font-semibold text-ink-900">
             {text.sections.proxy}
           </h3>

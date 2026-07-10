@@ -318,17 +318,17 @@ export function RunsPage() {
   useEffect(() => {
     setHeaderActions(
       <>
-        <div className="hidden items-center gap-1.5 xl:flex">
-          <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-500">
+        <div className="hidden items-center divide-x divide-line rounded-md border border-line bg-ink-50 px-1 text-xs text-ink-500 xl:flex">
+          <span className="px-2.5 py-1.5">
             {text.metrics.runs}: {runs.length}
           </span>
-          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+          <span className="px-2.5 py-1.5">
             {text.metrics.active}: {activeCount}
           </span>
-          <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-ok">
+          <span className="px-2.5 py-1.5">
             {text.metrics.succeeded}: {succeededCount}
           </span>
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-warn">
+          <span className="px-2.5 py-1.5">
             {text.metrics.attention}: {failedCount}
           </span>
         </div>
@@ -360,9 +360,9 @@ export function RunsPage() {
     <div className="viewport-page grid-rows-[minmax(0,1fr)]">
       <div className="h-full min-h-0 min-w-0 pr-1">
         <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
-          <div className="panel shrink-0 p-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative min-w-[220px] flex-1">
+          <div className="panel shrink-0 overflow-hidden p-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative min-w-[240px] flex-1 md:max-w-xl">
                 <SelectControl
                   leadingIcon={<Search className="h-4 w-4" />}
                   onChange={(event) => setTaskId(event.target.value)}
@@ -405,9 +405,9 @@ export function RunsPage() {
               </SelectControl>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+            <div className="-mx-3 -mb-3 mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-50 px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-sm text-ink-600">
-                <span className="rounded-full bg-ink-50 px-2.5 py-1">
+                <span className="border-r border-line pr-3 text-xs font-medium text-ink-500">
                   {text.bulk.selected.replace(
                     "{{count}}",
                     String(selectedRuns.length),
@@ -499,7 +499,7 @@ export function RunsPage() {
             bulkRetryMutation.error ||
             bulkDeleteMutation.error ? (
               <div
-                className="mt-3 rounded-md bg-red-50 p-2 text-xs text-danger"
+                className="mt-3 rounded-md border border-danger/20 bg-red-50 p-2 text-xs text-danger"
                 role="alert"
               >
                 {errorMessage(
@@ -570,7 +570,7 @@ export function RunsPage() {
                       <tr
                         aria-pressed={selectedRun?.id === run.id}
                         className={`cursor-pointer outline-none transition-colors duration-150 hover:bg-ink-50 focus-visible:bg-brand-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                          selectedRun?.id === run.id ? "bg-blue-50" : ""
+                          selectedRun?.id === run.id ? "bg-brand-50" : ""
                         }`}
                         key={run.id}
                         onClick={() => setSelectedRun(run)}
@@ -610,17 +610,7 @@ export function RunsPage() {
                           {run.error_message || "-"}
                         </td>
                         <td className="table-action-cell">
-                          <div className="flex w-[196px] flex-wrap justify-end gap-1">
-                            <Button
-                              aria-label={copy.common.details}
-                              className="h-7 px-1.5"
-                              icon={<FileText className="h-4 w-4" />}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedRun(run);
-                              }}
-                              variant="ghost"
-                            />
+                          <div className="flex justify-end gap-1">
                             <Button
                               aria-label={copy.common.delete}
                               className="h-7 px-1.5"
@@ -665,8 +655,8 @@ export function RunsPage() {
         widthClass="max-w-5xl"
       >
         {selectedRun ? (
-          <div className="grid max-h-[72vh] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden">
-            <div className="grid gap-3 rounded-lg border border-line bg-ink-50/60 p-3 text-sm">
+          <div className="grid max-h-[72vh] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3 overflow-hidden">
+            <div className="grid gap-3 rounded-md border border-line bg-ink-50 p-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-ink-500">
@@ -784,12 +774,12 @@ export function RunsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 rounded-lg border border-line bg-ink-50 p-1">
+            <div className="flex border-b border-line">
               <button
-                className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
+                className={`h-9 flex-1 cursor-pointer border-b-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                   detailTab === "logs"
-                    ? "bg-white text-ink-900 shadow-panel"
-                    : "text-ink-500 hover:text-ink-900"
+                    ? "border-brand-600 text-ink-900"
+                    : "border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-900"
                 }`}
                 onClick={() => setDetailTab("logs")}
                 type="button"
@@ -797,10 +787,10 @@ export function RunsPage() {
                 {copy.common.logs} {logsQuery.data?.length ?? 0}
               </button>
               <button
-                className={`h-8 cursor-pointer rounded-md text-sm font-medium transition-colors duration-200 ${
+                className={`h-9 flex-1 cursor-pointer border-b-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                   detailTab === "artifacts"
-                    ? "bg-white text-ink-900 shadow-panel"
-                    : "text-ink-500 hover:text-ink-900"
+                    ? "border-brand-600 text-ink-900"
+                    : "border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-900"
                 }`}
                 onClick={() => setDetailTab("artifacts")}
                 type="button"
@@ -809,7 +799,7 @@ export function RunsPage() {
               </button>
             </div>
 
-            <div className="scroll-panel min-h-0 rounded-lg border border-line p-3">
+            <div className="scroll-panel min-h-0 rounded-md border border-line px-3">
               {detailTab === "logs" ? (
                 logsQuery.isError ? (
                   <div
@@ -819,12 +809,12 @@ export function RunsPage() {
                     {errorMessage(logsQuery.error)}
                   </div>
                 ) : (logsQuery.data ?? []).length === 0 ? (
-                  <div className="text-sm text-ink-500">{text.noLogs}</div>
+                  <div className="py-3 text-sm text-ink-500">{text.noLogs}</div>
                 ) : (
-                  <div className="grid gap-2">
+                  <div className="divide-y divide-line">
                     {(logsQuery.data ?? []).map((log) => (
                       <div
-                        className="rounded-md border border-line bg-ink-50 p-2.5"
+                        className="py-3"
                         key={log.id}
                       >
                         <div className="mb-1 flex items-center justify-between gap-3">
@@ -842,12 +832,12 @@ export function RunsPage() {
                   </div>
                 )
               ) : (artifactsQuery.data ?? []).length === 0 ? (
-                <div className="text-sm text-ink-500">{text.noArtifacts}</div>
+                <div className="py-3 text-sm text-ink-500">{text.noArtifacts}</div>
               ) : (
-                <div className="grid gap-2">
+                <div className="divide-y divide-line">
                   {(artifactsQuery.data ?? []).map((artifact) => (
                     <div
-                      className="rounded-md border border-line px-3 py-2"
+                      className="py-3"
                       key={artifact.id}
                     >
                       <div className="flex items-center justify-between gap-2 text-sm">
@@ -915,7 +905,7 @@ export function RunsPage() {
         widthClass="max-w-lg"
       >
         <p className="text-sm leading-6 text-ink-700">{text.deleteBody}</p>
-        <p className="selectable mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
+        <p className="selectable mt-3 truncate rounded-md border border-line bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.id}
         </p>
         {deleteRunMutation.error ? (
@@ -977,7 +967,7 @@ export function RunsPage() {
             )}
           </p>
         ) : null}
-        <div className="mt-3 max-h-40 overflow-y-auto rounded-xl bg-ink-50 px-3 py-2 text-xs text-ink-700">
+        <div className="mt-3 max-h-40 overflow-y-auto rounded-md border border-line bg-ink-50 px-3 py-2 text-xs text-ink-700">
           {selectedDeletableRuns.map((run) => (
             <p className="selectable truncate" key={run.id}>
               {run.id}

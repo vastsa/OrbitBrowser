@@ -45,28 +45,29 @@ export function Modal({
   }
 
   return (
-    <div className="modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/35 p-4">
+    <div className="modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/40 p-5">
       <section
         aria-labelledby={titleId}
         aria-modal="true"
-        className={`modal-panel flex max-h-[88vh] w-full ${widthClass} flex-col overflow-hidden rounded-lg border border-line bg-white shadow-elevated`}
+        className={`modal-panel flex max-h-[88vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl border border-line bg-white shadow-panel`}
         role="dialog"
       >
-        <header className="flex h-14 items-center justify-between border-b border-line bg-ink-50/70 px-5">
+        <header className="flex min-h-14 items-center justify-between border-b border-line bg-white px-5 py-2">
           <h2 className="text-base font-semibold text-ink-900" id={titleId}>
             {title}
           </h2>
           <Button
             aria-label={copy.common.close}
-            className="h-8 w-8 px-0"
+            className="w-9 px-0"
             icon={<X className="h-4 w-4" />}
             onClick={onClose}
+            size="sm"
             variant="ghost"
           />
         </header>
-        <div className="overflow-y-auto px-5 py-4">{children}</div>
+        <div className="scroll-panel px-5 py-5">{children}</div>
         {footer ? (
-          <footer className="flex items-center justify-end gap-2 border-t border-line bg-ink-50 px-5 py-3">
+          <footer className="flex items-center justify-end gap-2 border-t border-line bg-white px-5 py-4">
             {footer}
           </footer>
         ) : null}

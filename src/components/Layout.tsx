@@ -2,7 +2,6 @@ import {
   Bot,
   ClipboardList,
   History,
-  Radio,
   Settings,
   SquareStack,
 } from "lucide-react";
@@ -58,44 +57,34 @@ export function Layout() {
   return (
     <div className="app-shell h-screen min-w-[1280px] overflow-hidden text-ink-900">
       <aside
-        className="app-sidebar fixed inset-y-0 left-0 z-20 flex w-56 flex-col overflow-hidden border-r shadow-elevated"
+        className="app-sidebar fixed inset-y-0 left-0 z-20 flex w-56 flex-col overflow-hidden border-r"
         data-tauri-drag-region="deep"
       >
-        <div className="app-sidebar-bg app-sidebar-bg-light pointer-events-none absolute inset-0" />
-        <div className="app-sidebar-bg app-sidebar-bg-dark pointer-events-none absolute inset-0" />
-        <div className="app-sidebar-glow app-sidebar-glow-top-light pointer-events-none absolute inset-0" />
-        <div className="app-sidebar-glow app-sidebar-glow-top-dark pointer-events-none absolute inset-0" />
-        <div className="app-sidebar-glow app-sidebar-glow-bottom-light pointer-events-none absolute -left-16 bottom-10 h-40 w-40 rounded-full blur-3xl" />
-        <div className="app-sidebar-glow app-sidebar-glow-bottom-dark pointer-events-none absolute -left-16 bottom-10 h-40 w-40 rounded-full blur-3xl" />
-
         <div className="relative flex h-20 items-center gap-3 px-5">
-          <picture className="h-10 w-10 shrink-0">
+          <picture className="h-9 w-9 shrink-0">
             <source media="(prefers-color-scheme: dark)" srcSet={appLogoDark} />
             <img
               alt="Orbit Browser"
-              className="h-10 w-10 rounded-xl object-cover shadow-panel ring-1 ring-white/20"
+              className="h-9 w-9 rounded-[10px] object-cover"
               src={appLogo}
             />
           </picture>
           <div className="min-w-0">
-            <p className="app-sidebar-brand-title truncate text-sm font-bold tracking-tight">Orbit Browser</p>
-            <p className="app-sidebar-brand-subtitle mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.16em]">Automation studio</p>
+            <p className="app-sidebar-brand-title truncate text-sm font-semibold tracking-tight">Orbit Browser</p>
+            <p className="app-sidebar-brand-subtitle mt-0.5 truncate text-[9px] font-medium uppercase tracking-[0.12em]">Automation studio</p>
           </div>
         </div>
 
-        <div className="relative px-5 pb-2 pt-3 text-[10px] font-bold uppercase tracking-[0.16em] text-ink-400">
-          Workspace
-        </div>
-        <nav aria-label="Primary" className="relative grid gap-1 px-3 animate-soft-enter-left">
+        <nav aria-label="Primary" className="relative grid gap-1 px-3 pt-3">
           {navigation.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
                 className={({ isActive }) =>
-                  `app-menu-item group relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-sm transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
+                  `app-menu-item group relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                     isActive
-                      ? "app-menu-item-active shadow-panel"
-                      : "app-menu-item-idle hover:shadow-panel"
+                      ? "app-menu-item-active"
+                      : "app-menu-item-idle"
                   }`
                 }
                 end={item.to === "/"}
@@ -105,14 +94,9 @@ export function Layout() {
                 {({ isActive }) => (
                   <>
                     <span
-                      className={`absolute inset-y-2 left-0 w-1 rounded-r-full transition-opacity duration-200 ${
-                        isActive ? "app-menu-active-bar opacity-100" : "app-menu-hover-bar opacity-0 group-hover:opacity-60"
-                      }`}
-                    />
-                    <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200 ${
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center transition-colors duration-150 ${
                         isActive
-                          ? "app-menu-icon-active shadow-panel"
+                          ? "app-menu-icon-active"
                           : "app-menu-icon-idle"
                       }`}
                     >
@@ -125,12 +109,9 @@ export function Layout() {
             );
           })}
         </nav>
-        <div className="app-sidebar-status relative mx-3 mt-auto mb-4 rounded-xl border p-3">
+        <div className="app-sidebar-status relative mx-5 mb-4 mt-auto border-x-0 border-b-0 border-t px-0 pt-4">
           <div className="app-sidebar-status-title flex items-center gap-2 text-xs font-medium">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-300 opacity-70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-300" />
-            </span>
+            <span className="h-2 w-2 rounded-full bg-ok" />
             运行时已就绪
           </div>
           <p className="app-sidebar-status-copy mt-1.5 text-[11px] leading-4">本地 Profile 与任务队列已连接。</p>
@@ -142,13 +123,9 @@ export function Layout() {
           data-tauri-drag-region="deep"
         >
           <div className="min-w-0">
-            <h1 className="text-xl font-bold tracking-[-0.025em] text-ink-900">{page.title}</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-ink-900">{page.title}</h1>
           </div>
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex items-center gap-2 border-r border-line pr-4 text-xs text-ink-500">
-              <Radio className="h-3.5 w-3.5 text-ok" />
-              <span>系统在线</span>
-            </div>
             {headerActions ? (
             <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
               {headerActions}

@@ -1024,7 +1024,7 @@ function ResizableAgentPanel({
 
   return (
     <section
-      className={`panel relative flex min-h-0 flex-col overflow-hidden ${
+      className={`panel relative flex min-h-0 flex-col overflow-hidden shadow-none ${
         fillRemaining && !collapsed ? "flex-1" : "shrink-0"
       }`}
       style={
@@ -1033,10 +1033,10 @@ function ResizableAgentPanel({
           : { height: collapsed ? COLLAPSED_AGENT_PANEL_HEIGHT : height }
       }
     >
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line px-3.5">
         <button
           aria-expanded={!collapsed}
-          className="control-focus flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left text-sm font-semibold text-ink-900 hover:text-brand-700"
+          className="control-focus flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left text-sm font-semibold text-ink-900 hover:text-brand-600"
           onClick={onToggle}
           type="button"
         >
@@ -1049,12 +1049,12 @@ function ResizableAgentPanel({
         {!collapsed && actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
 
-      {!collapsed ? <div className="scroll-panel min-h-0 min-w-0 flex-1 overflow-x-hidden p-4">{children}</div> : null}
+      {!collapsed ? <div className="scroll-panel min-h-0 min-w-0 flex-1 overflow-x-hidden p-3.5">{children}</div> : null}
 
       {!collapsed && !fillRemaining ? (
         <button
           aria-label={`Resize ${title}`}
-          className="control-focus flex h-3 shrink-0 cursor-row-resize items-center justify-center border-t border-line bg-ink-50 text-ink-400 transition-colors hover:bg-brand-50 hover:text-brand-600"
+          className="control-focus flex h-2.5 shrink-0 cursor-row-resize items-center justify-center border-t border-line bg-ink-50 text-ink-400 transition-colors hover:text-brand-600"
           onPointerDown={startResize}
           type="button"
         >
@@ -2411,11 +2411,11 @@ log.info("message");
     <div className="h-full min-h-0 w-full">
       {!aigcConfigured ? (
         <section className="panel flex h-full min-h-0 items-center justify-center p-6">
-          <div className="agent-config-card max-w-xl rounded-3xl border border-brand-100 p-8 text-center shadow-panel">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-panel">
-              <Settings2 className="h-6 w-6" />
+          <div className="max-w-lg px-8 py-10 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-ink-50 text-brand-600">
+              <Settings2 className="h-5 w-5" />
             </div>
-            <h3 className="mt-5 text-xl font-semibold text-ink-900">
+            <h3 className="mt-5 text-lg font-semibold text-ink-900">
               {text.configTitle}
             </h3>
             <p className="mt-3 text-sm leading-6 text-ink-600">
@@ -2432,20 +2432,20 @@ log.info("message");
           </div>
         </section>
       ) : (
-      <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_360px] gap-3">
-        <section className="panel grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
-          <div ref={scrollRef} className="scroll-panel min-w-0 p-4">
+      <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_320px] gap-3">
+        <section className="panel grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden shadow-none">
+          <div ref={scrollRef} className="scroll-panel min-w-0 px-5 py-4">
             {messages.length === 0 ? (
               <div className="flex h-full min-h-[420px] items-center justify-center p-4">
                 <EmptyState
-                  className="agent-empty-state w-full max-w-xl shadow-panel"
+                  className="w-full max-w-lg border-0 bg-transparent shadow-none"
                   icon={<Bot className="h-5 w-5" />}
                   title={text.emptyTitle}
                   description={text.emptyDescription}
                 />
               </div>
             ) : (
-              <div className="grid min-w-0 gap-4">
+              <div className="mx-auto grid w-full max-w-4xl min-w-0 gap-5">
                 {messages.map((message, index) => {
                   const isLastMessage = index === messages.length - 1;
                   const showAssistantLoading =
@@ -2456,16 +2456,16 @@ log.info("message");
                   return (
                   <div key={message.id} className={`flex w-full min-w-0 gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     {message.role !== "user" ? (
-                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-50 text-brand-600">
                         {message.role === "tool" ? <SquareTerminal className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                       </div>
                     ) : null}
-                    <div className={`agent-message-bubble min-w-0 rounded-2xl px-4 py-3 text-sm leading-6 shadow-panel ${
+                    <div className={`agent-message-bubble min-w-0 rounded-xl px-4 py-3 text-sm leading-6 ${
                       message.role === "user"
                         ? "bg-brand-600 text-white"
                         : message.role === "tool"
                           ? "border border-line bg-ink-50 text-ink-600"
-                          : "agent-assistant-bubble border border-line text-ink-900"
+                          : "bg-transparent text-ink-900"
                     }`}>
                       {message.role === "tool" ? (
                         <div className="min-w-0">
@@ -2503,7 +2503,7 @@ log.info("message");
                       )}
                     </div>
                     {message.role === "user" ? (
-                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-white">
+                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-700">
                         <User className="h-4 w-4" />
                       </div>
                     ) : null}
@@ -2520,11 +2520,11 @@ log.info("message");
             )}
           </div>
 
-          <div className="agent-composer-shell border-t border-line p-3">
-            {error ? <div className="mb-2 rounded-md bg-red-50 px-3 py-2 text-sm text-danger">{error}</div> : null}
-            <div className="agent-composer min-w-0 overflow-hidden rounded-2xl border shadow-elevated transition-colors duration-200 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10">
+          <div className="border-t border-line bg-white p-3">
+            {error ? <div className="mb-2 rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">{error}</div> : null}
+            <div className="mx-auto min-w-0 max-w-4xl overflow-hidden rounded-xl border border-line bg-white transition-colors duration-200 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10">
               {activeMention ? (
-                <div className="agent-mention-popover min-w-0 max-w-full overflow-hidden border-b border-line px-2 py-1.5">
+                <div className="agent-mention-popover min-w-0 max-w-full overflow-hidden border-b border-line bg-ink-50 px-2 py-1.5">
                   <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] leading-4 text-ink-500">
                     <span>{text.atCommandHint}</span>
                     {isResolvingMention ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -2533,13 +2533,13 @@ log.info("message");
                     <div className="grid min-w-0 gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
                       {filteredMentionSuggestions.map((suggestion) => (
                         <button
-                          className="control-focus flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-brand-50 disabled:cursor-wait disabled:opacity-60"
+                          className="control-focus flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-60"
                           disabled={isResolvingMention}
                           key={suggestion.id}
                           onClick={() => void insertMentionReference(suggestion)}
                           type="button"
                         >
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-700">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-brand-600">
                             {suggestion.kind === "task" ? (
                               <ClipboardList className="h-3.5 w-3.5" />
                             ) : suggestion.kind === "run" ? (
@@ -2572,13 +2572,13 @@ log.info("message");
                 <div className="flex min-w-0 flex-wrap gap-1.5 border-b border-line px-2 py-1.5">
                   {attachedReferences.map((reference) => (
                     <span
-                      className="inline-flex max-w-full items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-[11px] font-medium leading-4 text-brand-800"
+                      className="inline-flex max-w-full items-center gap-1 rounded-md bg-ink-50 px-2 py-1 text-[11px] font-medium leading-4 text-ink-700"
                       key={reference.id}
                       title={reference.detail}
                     >
                       <span className="truncate">{reference.label}</span>
                       <button
-                        className="rounded px-0.5 text-brand-500 hover:bg-brand-100 hover:text-brand-800"
+                        className="rounded px-0.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600"
                         onClick={() => setAttachedReferences((current) => current.filter((item) => item.id !== reference.id))}
                         type="button"
                       >
@@ -2590,7 +2590,7 @@ log.info("message");
               ) : null}
               <textarea
                 ref={inputRef}
-                className="min-h-20 w-full max-w-full resize-none rounded-2xl border-0 bg-transparent px-4 py-3 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
+                className="min-h-20 w-full max-w-full resize-none border-0 bg-transparent px-4 py-3 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
                 placeholder={text.placeholder}
                 rows={3}
                 value={input}
@@ -2631,11 +2631,11 @@ log.info("message");
                   }
                 }}
               />
-              <div className="agent-composer-actions flex items-center justify-between gap-3 border-t px-3 py-2">
+              <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-2">
                 <span className="truncate text-xs text-ink-500">{text.shortcutHint}</span>
                 {isRunning ? (
                   <Button
-                    className="h-10 rounded-xl px-4 shadow-none"
+                    className="h-9 rounded-lg px-4 shadow-none"
                     icon={<CircleStop className="h-4 w-4" />}
                     onClick={stop}
                     variant="danger"
@@ -2644,7 +2644,7 @@ log.info("message");
                   </Button>
                 ) : (
                   <Button
-                    className="h-10 rounded-xl px-4 shadow-none disabled:bg-ink-50 disabled:text-ink-500"
+                    className="h-9 rounded-lg px-4 shadow-none disabled:bg-ink-50 disabled:text-ink-500"
                     icon={<Send className="h-4 w-4" />}
                     onClick={send}
                     disabled={!ready || !input.trim()}
@@ -2687,20 +2687,20 @@ log.info("message");
             ) : sessions.length === 0 ? (
               <p className="text-sm text-ink-500">{text.noSessions}</p>
             ) : (
-              <div className="grid min-w-0 gap-2 overflow-hidden">
+              <div className="grid min-w-0 gap-1 overflow-hidden">
                 {sessions.map((session) => {
                   const active = session.session_id === sessionId;
                   return (
                     <div
                       key={session.session_id}
-                      className={`group flex min-w-0 items-center overflow-hidden rounded-xl border transition-colors ${
+                      className={`group flex min-w-0 items-center overflow-hidden rounded-lg transition-colors ${
                         active
-                          ? "agent-session-card-active"
-                          : "agent-session-card agent-session-card-hoverable border-line text-ink-800"
+                          ? "bg-ink-100 text-ink-900"
+                          : "text-ink-700 hover:bg-ink-50 hover:text-ink-900"
                       }`}
                     >
                       <button
-                        className="control-focus min-w-0 flex-1 overflow-hidden rounded-xl py-2 pl-3 pr-2 text-left disabled:cursor-default"
+                        className="control-focus min-w-0 flex-1 overflow-hidden rounded-lg py-2 pl-3 pr-2 text-left disabled:cursor-default"
                         disabled={isRunning || active}
                         onClick={() => switchSession(session.session_id)}
                         type="button"
@@ -2715,7 +2715,7 @@ log.info("message");
                       </button>
                       <button
                         aria-label={text.deleteSession}
-                        className="control-focus mr-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-400 transition hover:bg-red-50 hover:text-danger focus:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                        className="control-focus mr-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-400 transition hover:bg-red-50 hover:text-danger focus:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                         disabled={isRunning}
                         onClick={(event) => {
                           event.preventDefault();
@@ -2750,15 +2750,15 @@ log.info("message");
           >
             {context ? (
               <div className="grid gap-3 text-xs text-ink-600">
-                <div className="rounded-lg border border-line bg-ink-50 p-3">
+                <div className="border-b border-line pb-3">
                   <p className="font-semibold text-ink-900">{context.title || "-"}</p>
                   <p className="selectable mt-1 break-all text-ink-500">{context.url}</p>
                 </div>
                 <div>
                   <p className="mb-2 font-semibold text-ink-900">{text.elements}</p>
-                  <div className="grid min-w-0 gap-2 overflow-hidden">
+                  <div className="min-w-0 divide-y divide-line overflow-hidden rounded-lg border border-line">
                     {context.interactive_elements.slice(0, 8).map((item) => (
-                      <div key={`${item.kind}-${item.selector}`} className="rounded-lg border border-line px-3 py-2">
+                      <div key={`${item.kind}-${item.selector}`} className="px-3 py-2">
                         <p className="font-medium text-ink-800">{item.label || item.kind}</p>
                         <p className="selectable mt-1 break-all font-mono text-[11px] text-ink-500">{item.selector}</p>
                       </div>
@@ -2767,7 +2767,7 @@ log.info("message");
                 </div>
                 <div>
                   <p className="mb-2 font-semibold text-ink-900">{text.visibleText}</p>
-                  <p className="selectable agent-context-text max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-line p-3 leading-5">{context.visible_text || "-"}</p>
+                  <p className="selectable max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-ink-50 p-3 leading-5">{context.visible_text || "-"}</p>
                 </div>
               </div>
             ) : (
@@ -2786,12 +2786,12 @@ log.info("message");
           >
             {recording ? (
               <div className="grid gap-2 text-xs">
-                <div className="flex items-center justify-between rounded-lg border border-line bg-ink-50 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg bg-ink-50 px-3 py-2">
                   <span className="text-ink-600">{recording.is_recording ? text.recordingActive : text.recordingStopped}</span>
                   <span className="font-semibold text-ink-900">{recording.total_events}</span>
                 </div>
                 {recording.events.slice(-10).reverse().map((event, index) => (
-                  <div key={`${event.timestamp}-${index}`} className="rounded-lg border border-line px-3 py-2">
+                  <div key={`${event.timestamp}-${index}`} className="border-b border-line px-1 py-2 last:border-b-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold text-ink-800">{event.kind}</span>
                       <span className="text-ink-500">{formatDateTime(event.timestamp, language)}</span>
@@ -2832,7 +2832,7 @@ log.info("message");
         onClose={() => setDeleteTarget(null)}
       >
         <p className="text-sm leading-6 text-ink-700">{text.deleteSessionConfirm}</p>
-        <p className="mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
+        <p className="mt-3 truncate rounded-lg bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.title || text.untitledSession}
         </p>
       </Modal>

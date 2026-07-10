@@ -166,7 +166,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     setHeaderActions(
-      <span className="rounded-full border border-line bg-white px-3 py-1 text-xs text-ink-500">
+      <span className="rounded-md bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-500">
         {saveStatus}
       </span>,
     );
@@ -176,13 +176,13 @@ export function SettingsPage() {
 
   return (
     <div className="scroll-panel h-full min-h-0 w-full pr-1">
-      <section className="panel scroll-panel p-4">
+      <section className="panel mx-auto max-w-5xl overflow-hidden">
         {(settingsQuery.error ||
           saveMutation.error ||
           detectMutation.error ||
           validateChromeMutation.error ||
           openDataDirMutation.error) && (
-          <div className="mb-4 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+          <div className="m-5 rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
             {errorMessage(
               settingsQuery.error ??
                 saveMutation.error ??
@@ -193,11 +193,11 @@ export function SettingsPage() {
           </div>
         )}
 
-        <div className="grid gap-4">
-          <section className="grid gap-3">
+        <div className="divide-y divide-line">
+          <section className="grid gap-4 p-5">
             <div className="flex items-center gap-2">
               <Languages className="h-4 w-4 text-brand-600" />
-              <h3 className="text-sm font-semibold text-ink-900">
+              <h3 className="text-[15px] font-semibold text-ink-900">
                 {text.preferences}
               </h3>
             </div>
@@ -218,8 +218,8 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-ink-900">Chrome</h3>
+          <section className="grid gap-4 p-5">
+            <h3 className="text-[15px] font-semibold text-ink-900">Chrome</h3>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
               <TextField
                 label={text.chromePath}
@@ -253,7 +253,7 @@ export function SettingsPage() {
 
             {detectMutation.data || validateChromeMutation.data ? (
               <div
-                className={`rounded-md border px-3 py-2 text-sm ${
+                className={`rounded-lg border px-3 py-2 text-sm ${
                   (validateChromeMutation.data ?? detectMutation.data)?.found
                     ? "border-ok/20 bg-green-50 text-ok"
                     : "border-warn/20 bg-amber-50 text-warn"
@@ -271,10 +271,10 @@ export function SettingsPage() {
             ) : null}
           </section>
 
-          <section className="grid gap-3">
+          <section className="grid gap-4 p-5">
             <div className="flex items-center gap-2">
               <Bot className="h-4 w-4 text-brand-600" />
-              <h3 className="text-sm font-semibold text-ink-900">
+              <h3 className="text-[15px] font-semibold text-ink-900">
                 {text.aigc}
               </h3>
             </div>
@@ -304,8 +304,8 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-ink-900">
+          <section className="grid gap-4 p-5">
+            <h3 className="text-[15px] font-semibold text-ink-900">
               {text.defaults}
             </h3>
             <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -359,8 +359,8 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-ink-900">
+          <section className="grid gap-4 p-5">
+            <h3 className="text-[15px] font-semibold text-ink-900">
               {text.dataDirectory}
             </h3>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -381,10 +381,10 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="settings-maintenance-card grid gap-3 rounded-lg border p-3">
+          <section className="grid gap-4 bg-ink-50/60 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-ink-900">
+                <h3 className="text-[15px] font-semibold text-ink-900">
                   {text.maintenance}
                 </h3>
                 <p className="mt-1 text-xs text-ink-500">
@@ -408,7 +408,7 @@ export function SettingsPage() {
               </div>
             </div>
             {cleanupMutation.data ? (
-              <div className="rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
+              <div className="rounded-lg border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
                 {format(text.cleanedItems, {
                   count: cleanupMutation.data.cleaned,
                 })}
@@ -421,7 +421,7 @@ export function SettingsPage() {
             ) : null}
             {cleanupMutation.error ? (
               <div
-                className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
+                className="rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger"
                 role="alert"
               >
                 {errorMessage(cleanupMutation.error)}

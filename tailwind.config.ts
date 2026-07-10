@@ -47,17 +47,12 @@ const config: Config = {
           50: "rgb(var(--color-danger-soft) / 0.14)",
           700: "rgb(var(--color-danger-strong) / <alpha-value>)",
         },
-        teal: {
-          50: "rgb(var(--color-brand-800) / 0.14)",
-        },
-        accent: "rgb(var(--color-accent) / <alpha-value>)",
         ok: "rgb(var(--color-ok) / <alpha-value>)",
         warn: "rgb(var(--color-warn) / <alpha-value>)",
         danger: "rgb(var(--color-danger) / <alpha-value>)",
       },
       boxShadow: {
         panel: "var(--shadow-panel)",
-        elevated: "var(--shadow-elevated)",
       },
     },
   },

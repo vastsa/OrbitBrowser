@@ -24,7 +24,7 @@
         "minimizable": true,
         "closable": true,
         "visible": true,
-        "backgroundColor": "#F7F9FC",
+        "backgroundColor": "#F4F5F7",
         "titleBarStyle": "Overlay",
         "trafficLightPosition": {
           "x": 18,

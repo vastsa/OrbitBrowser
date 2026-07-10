@@ -145,7 +145,7 @@ export function TasksPage() {
       <section className="panel scroll-panel min-h-0 overflow-hidden">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
           <h2 className="text-sm font-semibold text-ink-900">{text.taskList}</h2>
-          <span className="rounded-full bg-ink-100 px-2 py-1 text-xs font-medium text-ink-500">
+          <span className="rounded-md border border-line bg-ink-50 px-2 py-1 text-xs font-medium text-ink-500">
             {tasks.length}
             {text.countUnit ? ` ${text.countUnit}` : ""}
           </span>
@@ -160,6 +160,7 @@ export function TasksPage() {
             </div>
           ) : tasks.length === 0 ? (
             <EmptyState
+              className="border-0 bg-transparent"
               action={
                 <Button
                   icon={<Plus className="h-4 w-4" />}
@@ -174,10 +175,10 @@ export function TasksPage() {
               title={text.emptyTitle}
             />
           ) : (
-            <div className="grid gap-2">
+            <div className="overflow-hidden rounded-md border border-line bg-white">
               {tasks.map((task) => (
                 <button
-                  className="grid cursor-pointer gap-3 rounded-lg border border-line bg-white px-4 py-3 text-left transition-colors duration-200 hover:border-brand-500 hover:bg-brand-50 sm:grid-cols-[minmax(0,1fr)_180px_120px]"
+                  className="grid w-full cursor-pointer gap-3 border-b border-line bg-white px-4 py-3 text-left transition-colors duration-150 last:border-b-0 hover:bg-ink-50 focus-visible:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 sm:grid-cols-[minmax(0,1fr)_180px_148px]"
                   key={task.id}
                   onClick={() => navigate(`/tasks/${task.id}`)}
                   type="button"
@@ -202,7 +203,7 @@ export function TasksPage() {
                     </span>
                   </span>
                   <span className="flex items-center justify-start sm:justify-end">
-                    <span className="rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-600">
+                    <span className="rounded-[5px] bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-600">
                       {task.updated_at || task.created_at
                         ? formatDateTime(
                             task.updated_at ?? task.created_at,
@@ -423,8 +424,8 @@ export function TaskDetailPage() {
 
   return (
     <div className="viewport-page grid-rows-[minmax(0,1fr)]">
-      <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-4 pr-1 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:items-start 2xl:pr-0">
-        <div className="grid min-w-0 content-start gap-4">
+      <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-3 pr-1 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start xl:pr-0">
+        <div className="grid min-w-0 content-start gap-3">
           <section className="panel p-4">
             <SectionHeader
               title={draft.id ? text.editTitle : text.newTitle}
@@ -505,7 +506,7 @@ export function TaskDetailPage() {
               title={text.scriptEditor}
             />
             <textarea
-              className="control-focus h-[52vh] min-h-80 w-full max-w-full resize-none overflow-auto rounded-xl border border-ink-800 bg-ink-900 p-4 text-sm leading-6 text-ink-50 shadow-inner"
+              className="control-focus h-[52vh] min-h-80 w-full max-w-full resize-none overflow-auto rounded-md border border-ink-800 bg-ink-900 p-4 text-sm leading-6 text-ink-50"
               data-code-editor="true"
               onChange={(event) => updateDraft("script", event.target.value)}
               spellCheck={false}
@@ -515,7 +516,7 @@ export function TaskDetailPage() {
 
         </div>
 
-        <aside className="grid min-w-0 content-start gap-4">
+        <aside className="grid min-w-0 content-start gap-3">
           <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
             <SectionHeader
               actions={
@@ -534,9 +535,9 @@ export function TaskDetailPage() {
               })}
               title={text.runTargets}
             />
-            <div className="grid max-h-64 gap-2 overflow-auto pr-1">
+            <div className="max-h-64 overflow-auto rounded-md border border-line bg-white">
               {lastRunBatch ? (
-                <div className="rounded-xl border border-ok/20 bg-green-50 px-3 py-2 text-sm text-ok">
+                <div className="border-b border-line bg-green-50 px-3 py-2 text-sm text-ok">
                   {format(text.batchCreated, {
                     id: lastRunBatch.id,
                     total: lastRunBatch.total_count,
@@ -545,7 +546,7 @@ export function TaskDetailPage() {
               ) : null}
               {environments.map((environment: Environment) => (
                 <label
-                  className="flex cursor-pointer items-center justify-between rounded-md border border-line px-3 py-2 text-sm transition-colors duration-200 hover:border-brand-500 hover:bg-brand-50"
+                  className="flex cursor-pointer items-center justify-between border-b border-line px-3 py-2 text-sm transition-colors duration-150 last:border-b-0 hover:bg-ink-50 focus-within:bg-brand-50"
                   key={environment.id}
                 >
                   <span className="min-w-0">
@@ -572,6 +573,7 @@ export function TaskDetailPage() {
               ))}
               {environments.length === 0 ? (
                 <EmptyState
+                  className="border-0 bg-transparent"
                   description={text.noRunnableDescription}
                   icon={<Server className="h-5 w-5" />}
                   title={text.noRunnableTitle}
@@ -638,16 +640,16 @@ export function TaskDetailPage() {
 
           <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
             <SectionHeader title={text.recentRuns} />
-            <div className="grid max-h-72 gap-2 overflow-auto pr-1">
+            <div className="max-h-72 overflow-auto rounded-md border border-line bg-white">
               {selectedEnvironments.length > 0 ? (
-                <div className="rounded-md border border-ok/20 bg-green-50 px-3 py-2 text-xs text-ok">
+                <div className="border-b border-line bg-green-50 px-3 py-2 text-xs text-ok">
                   {format(text.selectedCount, {
                     count: selectedEnvironments.length,
                   })}
                 </div>
               ) : null}
               {(recentRunsQuery.data ?? []).slice(0, 6).map((run) => (
-                <div className="rounded-md border border-line px-3 py-2" key={run.id}>
+                <div className="border-b border-line px-3 py-2 last:border-b-0" key={run.id}>
                   <div className="flex items-center justify-between gap-2">
                     <StatusBadge status={run.status} />
                     <span className="text-xs text-ink-500">
@@ -661,10 +663,10 @@ export function TaskDetailPage() {
                 </div>
               ))}
               {draft.id && recentRunsQuery.data?.length === 0 ? (
-                <div className="text-sm text-ink-500">{text.noRunHistory}</div>
+                <div className="px-3 py-4 text-sm text-ink-500">{text.noRunHistory}</div>
               ) : null}
               {!draft.id ? (
-                <div className="rounded-md border border-dashed border-ink-300 px-3 py-6 text-center text-sm text-ink-500">
+                <div className="px-3 py-6 text-center text-sm text-ink-500">
                   {text.saveToShowHistory}
                 </div>
               ) : null}
@@ -701,7 +703,7 @@ export function TaskDetailPage() {
         onClose={() => setDeleteTarget(null)}
       >
         <p className="text-sm leading-6 text-ink-700">{text.deleteBody}</p>
-        <p className="mt-3 truncate rounded-xl bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
+        <p className="mt-3 truncate rounded-md border border-line bg-ink-50 px-3 py-2 text-sm font-medium text-ink-900">
           {deleteTarget?.name}
         </p>
       </Modal>

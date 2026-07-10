@@ -54,9 +54,11 @@ export function StatusBadge({ status }: { status: Status }) {
 
   return (
     <span
-      className={`non-selectable inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs font-medium ${toneClass[status] ?? toneClass.unknown}`}
+      className={`non-selectable inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-xs font-medium ${toneClass[status] ?? toneClass.unknown}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${dotClass[status] ?? dotClass.unknown}`} />
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${dotClass[status] ?? dotClass.unknown}`}
+      />
       {statusLabel(status)}
     </span>
   );
