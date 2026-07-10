@@ -152,6 +152,26 @@ fn normalize_browser_specific_fields(input: &mut SaveEnvironmentInput) {
         input.device_scale_factor = 1.0;
         input.environment_mode = EnvironmentMode::Standard;
         input.seed = None;
+        return;
+    }
+
+    input.platform = Some(normalize_camoufox_target_os(input.platform.as_deref()).to_string());
+    input.user_agent = None;
+    input.device_scale_factor = 1.0;
+    input.environment_mode = EnvironmentMode::Standard;
+    input.seed = None;
+}
+
+fn normalize_camoufox_target_os(value: Option<&str>) -> &'static str {
+    let normalized = value.unwrap_or_default().trim().to_ascii_lowercase();
+    if normalized.contains("win") {
+        "windows"
+    } else if normalized.contains("mac") {
+        "macos"
+    } else if normalized.contains("linux") {
+        "linux"
+    } else {
+        "auto"
     }
 }
 
@@ -433,5 +453,50 @@ mod tests {
         assert_eq!(input.timezone_id.as_deref(), Some("auto"));
         assert_eq!(input.geolocation_latitude, Some(31.2304));
         assert_eq!(input.geolocation_longitude, Some(121.4737));
+    }
+
+    #[test]
+    fn camoufox_save_policy_keeps_only_supported_fingerprint_constraints() {
+        let mut input = SaveEnvironmentInput {
+            id: None,
+            name: "Camoufox".to_string(),
+            group_id: None,
+            tags: Vec::new(),
+            notes: None,
+            browser_kind: BrowserKind::Camoufox,
+            chrome_path_override: None,
+            proxy_config: ProxyConfig::default(),
+            locale: "auto".to_string(),
+            timezone_id: Some("auto".to_string()),
+            geolocation_latitude: None,
+            geolocation_longitude: None,
+            user_agent: Some("custom-agent".to_string()),
+            platform: Some("Win32".to_string()),
+            web_rtc_protection: true,
+            viewport_width: 1440,
+            viewport_height: 900,
+            device_scale_factor: 2.0,
+            environment_mode: EnvironmentMode::Custom,
+            seed: Some("seed".to_string()),
+            headless: false,
+            start_url: Some("about:blank".to_string()),
+        };
+
+        normalize_browser_specific_fields(&mut input);
+
+        assert_eq!(input.platform.as_deref(), Some("windows"));
+        assert!(input.user_agent.is_none());
+        assert_eq!(input.device_scale_factor, 1.0);
+        assert!(matches!(input.environment_mode, EnvironmentMode::Standard));
+        assert!(input.seed.is_none());
+    }
+
+    #[test]
+    fn camoufox_unknown_platform_defaults_to_auto() {
+        assert_eq!(normalize_camoufox_target_os(None), "auto");
+        assert_eq!(normalize_camoufox_target_os(Some("random")), "auto");
+        assert_eq!(normalize_camoufox_target_os(Some("unsupported")), "auto");
+        assert_eq!(normalize_camoufox_target_os(Some("MacIntel")), "macos");
+        assert_eq!(normalize_camoufox_target_os(Some("Linux x86_64")), "linux");
     }
 }

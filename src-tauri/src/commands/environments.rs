@@ -449,6 +449,7 @@ async fn start_camoufox_environment(
     }
 
     let mut child = command.spawn().map_err(|err| {
+        let _ = std::fs::remove_file(&launch_plan.profile_json_path);
         AppError::new(
             "camoufox_start_failed",
             format!("Camoufox failed to start: {err}"),
@@ -462,8 +463,28 @@ async fn start_camoufox_environment(
         .retryable(true)
     })?;
     let pid = child.id();
-    wait_for_camoufox_ready(&mut child, control_port, &launch_plan.log_path).await?;
-    profile_manager::write_lock(state.data_dir(), &env.id, pid, control_port)?;
+    if let Err(err) = profile_manager::write_lock(state.data_dir(), &env.id, pid, control_port) {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&launch_plan.profile_json_path);
+        return Err(err);
+    }
+    if let Err(err) = wait_for_camoufox_ready(&mut child, control_port, &launch_plan.log_path).await
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = profile_manager::remove_lock(state.data_dir(), &env.id);
+        let _ = std::fs::remove_file(&launch_plan.profile_json_path);
+        return Err(err);
+    }
+    if let Err(err) = std::fs::remove_file(&launch_plan.profile_json_path) {
+        tracing::warn!(
+            environment_id = env.id,
+            path = %launch_plan.profile_json_path.display(),
+            error = %err,
+            "Failed to remove Camoufox runtime profile"
+        );
+    }
     reap_browser_child_on_exit(child);
 
     let now = Utc::now().to_rfc3339();
@@ -591,6 +612,12 @@ pub async fn restart_environment(
 pub async fn get_environment_statuses(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<EnvironmentRuntimeStatus>> {
+    get_environment_statuses_inner(&state).await
+}
+
+async fn get_environment_statuses_inner(
+    state: &AppState,
+) -> AppResult<Vec<EnvironmentRuntimeStatus>> {
     let environments = environment_repo::list(state.db())?;
     let records = environment_repo::list_session_records(state.db())?;
     let mut statuses = Vec::with_capacity(environments.len());
@@ -601,6 +628,7 @@ pub async fn get_environment_statuses(
             .iter()
             .find(|record| record.environment_id == env.id);
         let lock = profile_manager::read_lock(state.data_dir(), &env.id)?;
+        let had_runtime_state = session.is_some() || record.is_some() || lock.is_some();
 
         let status = if let Some(session) = session {
             status_from_pid_and_runtime(&env, session.pid, session.cdp_port).await
@@ -618,10 +646,10 @@ pub async fn get_environment_statuses(
             } else {
                 EnvironmentRuntimeStatus {
                     environment_id: env.id.clone(),
-                    status: RuntimeStatus::Crashed,
-                    pid: Some(lock.pid),
-                    cdp_port: Some(lock.cdp_port),
-                    message: Some("Found a stale profile lock".to_string()),
+                    status: RuntimeStatus::Stopped,
+                    pid: None,
+                    cdp_port: None,
+                    message: None,
                 }
             }
         } else {
@@ -633,6 +661,10 @@ pub async fn get_environment_statuses(
                 message: None,
             }
         };
+
+        if had_runtime_state && matches!(&status.status, RuntimeStatus::Stopped) {
+            cleanup_environment_runtime_best_effort(state, &env.id);
+        }
 
         statuses.push(status);
     }
@@ -1238,10 +1270,10 @@ async fn status_from_pid_and_runtime(
     if !process_manager::pid_alive(pid) {
         return EnvironmentRuntimeStatus {
             environment_id: env.id.clone(),
-            status: RuntimeStatus::Crashed,
-            pid: Some(pid),
-            cdp_port: Some(runtime_port),
-            message: Some("Process does not exist".to_string()),
+            status: RuntimeStatus::Stopped,
+            pid: None,
+            cdp_port: None,
+            message: None,
         };
     }
 
@@ -1257,22 +1289,38 @@ async fn status_from_pid_and_runtime(
         }
         return EnvironmentRuntimeStatus {
             environment_id: env.id.clone(),
-            status: RuntimeStatus::Unknown,
-            pid: Some(pid),
-            cdp_port: Some(runtime_port),
-            message: Some(
-                "Process exists, but Camoufox control bridge is not available yet".to_string(),
-            ),
+            status: RuntimeStatus::Stopped,
+            pid: None,
+            cdp_port: None,
+            message: None,
         };
     }
 
     if cdp_client::ping(runtime_port).await {
-        EnvironmentRuntimeStatus {
-            environment_id: env.id.clone(),
-            status: RuntimeStatus::Running,
-            pid: Some(pid),
-            cdp_port: Some(runtime_port),
-            message: None,
+        match cdp_client::list_targets(runtime_port).await {
+            Ok(targets) if targets.iter().any(|target| target.kind == "page") => {
+                EnvironmentRuntimeStatus {
+                    environment_id: env.id.clone(),
+                    status: RuntimeStatus::Running,
+                    pid: Some(pid),
+                    cdp_port: Some(runtime_port),
+                    message: None,
+                }
+            }
+            Ok(_) => EnvironmentRuntimeStatus {
+                environment_id: env.id.clone(),
+                status: RuntimeStatus::Stopped,
+                pid: None,
+                cdp_port: None,
+                message: None,
+            },
+            Err(err) => EnvironmentRuntimeStatus {
+                environment_id: env.id.clone(),
+                status: RuntimeStatus::Unknown,
+                pid: Some(pid),
+                cdp_port: Some(runtime_port),
+                message: Some(format!("Failed to inspect Chrome pages: {err}")),
+            },
         }
     } else {
         EnvironmentRuntimeStatus {
@@ -1344,6 +1392,61 @@ mod tests {
             Some("/settings/python")
         );
         assert_eq!(camoufox_python_override(None, Some("  ")), None);
+    }
+
+    #[tokio::test]
+    async fn status_poll_reconciles_stale_runtime_as_stopped() {
+        let root = test_data_dir();
+        let state = AppState::initialize(root.clone()).unwrap();
+        let environment_id = "env_stale_runtime";
+        let env =
+            environment_repo::save(state.db(), test_environment_input(environment_id)).unwrap();
+        let dead_pid = u32::MAX;
+        let runtime_port = 9;
+        let now = Utc::now().to_rfc3339();
+
+        state.sessions().upsert(BrowserSession {
+            environment_id: environment_id.to_string(),
+            pid: dead_pid,
+            cdp_port: runtime_port,
+            websocket_url: None,
+            started_at: now.clone(),
+            profile_dir: env.profile_dir.clone(),
+        });
+        environment_repo::upsert_session_record(
+            state.db(),
+            &BrowserSessionRecord {
+                environment_id: environment_id.to_string(),
+                pid: dead_pid,
+                cdp_port: runtime_port,
+                websocket_url: None,
+                profile_dir: env.profile_dir,
+                started_at: now.clone(),
+                last_seen_at: now,
+            },
+        )
+        .unwrap();
+        profile_manager::write_lock(state.data_dir(), environment_id, dead_pid, runtime_port)
+            .unwrap();
+
+        let statuses = get_environment_statuses_inner(&state).await.unwrap();
+        let status = statuses
+            .iter()
+            .find(|status| status.environment_id == environment_id)
+            .unwrap();
+
+        assert!(matches!(status.status, RuntimeStatus::Stopped));
+        assert!(status.pid.is_none());
+        assert!(state.sessions().get(environment_id).is_none());
+        assert!(environment_repo::list_session_records(state.db())
+            .unwrap()
+            .iter()
+            .all(|record| record.environment_id != environment_id));
+        assert!(profile_manager::read_lock(state.data_dir(), environment_id)
+            .unwrap()
+            .is_none());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

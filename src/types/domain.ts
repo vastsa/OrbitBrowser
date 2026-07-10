@@ -1,5 +1,7 @@
 export type BrowserKind = "chrome" | "camoufox";
 
+export type CamoufoxTargetOs = "auto" | "windows" | "macos" | "linux";
+
 export type EnvironmentMode = "standard" | "custom";
 
 export type ProxyKind = "none" | "http" | "https" | "socks4" | "socks5";

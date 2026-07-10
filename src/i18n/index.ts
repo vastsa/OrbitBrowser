@@ -170,7 +170,7 @@ export const copy = {
       bulk: {
         import: "批量导入",
         importHint:
-          "支持 JSON 数组或 CSV。CSV 表头可包含 name、group、tags、proxy_kind、proxy_host、proxy_port、locale、timezone、start_url。",
+          "支持 JSON 数组或 CSV。CSV 表头可包含 name、browser、target_os、group、tags、proxy_kind、proxy_host、proxy_port、locale、timezone、start_url。",
         importInput: "导入内容",
         importPreview: "导入预览",
         importConfirm: "导入 {{count}} 个环境",
@@ -209,19 +209,24 @@ export const copy = {
         tagsHint: "多个标签用英文逗号分隔。",
         notes: "备注",
         startUrl: "启动地址",
+        chromiumEngine: "Chromium / Chrome",
+        camoufoxEngine: "Camoufox / Firefox",
         chromePathOverride: "Chrome 路径覆盖",
         chromePathHint: "为空时使用应用设置中的 Chrome 路径。",
         camoufoxPathOverride: "Camoufox Python 路径",
         camoufoxPathHint:
           "可选。填写能 import camoufox 的 Python 可执行文件；为空时自动检测 python3/python。",
         camoufoxRuntimeHint:
-          "Camoufox 环境由 Orbit 启动和停止，支持代理、语言、时区、WebRTC 防护、持久 Profile 和自动化控制。",
+          "Camoufox 按目标平台生成一致的 Firefox 指纹，并支持代理、语言、WebRTC 防护和持久 Profile。",
         chromeNativeRuntimeHint:
           "Chrome 启动时按代理出口 IP 自动匹配语言、Intl、时区与定位；保留原生 User-Agent、Platform 和字体，不向页面注入指纹修补脚本。",
         chromeTimezoneHint: "Chrome 启动时自动使用代理出口 IP 对应的时区。",
         profileDir: "Profile 目录",
         profileHint: "为空时由应用自动创建隔离 Profile。",
         webRtcProtection: "启用 WebRTC 防泄漏",
+        targetOs: "目标平台",
+        targetOsAuto: "当前系统（推荐）",
+        targetOsHint: "自动模式匹配当前系统；也可固定使用 Windows、macOS 或 Linux 指纹。",
         locale: "Locale",
         localeHint: "填 auto 时按 IP 国家/地区生成浏览器语言和 Intl locale。",
         proxyType: "类型",
@@ -240,13 +245,6 @@ export const copy = {
         longitudeHint: "留空不启用虚拟定位；范围 -180 到 180。",
         viewportWidth: "窗口宽度",
         viewportHeight: "窗口高度",
-        scaleFactor: "缩放因子",
-        platform: "Platform",
-        platformHint: "留空或填 auto 时按当前系统生成，例如 MacIntel / Win32。",
-        seed: "随机种子",
-        seedHint: "预留字段；留空时系统元数据每次启动轻微变化。",
-        userAgent: "User-Agent",
-        userAgentHint: "留空或填 auto 时保留本机 Chrome 原生 User-Agent、Client Hints 和平台信息。",
       },
     },
     tasks: {
@@ -699,7 +697,7 @@ export const copy = {
       bulk: {
         import: "Bulk Import",
         importHint:
-          "Supports a JSON array or CSV. CSV headers may include name, group, tags, proxy_kind, proxy_host, proxy_port, locale, timezone, and start_url.",
+          "Supports a JSON array or CSV. CSV headers may include name, browser, target_os, group, tags, proxy_kind, proxy_host, proxy_port, locale, timezone, and start_url.",
         importInput: "Import Content",
         importPreview: "Import Preview",
         importConfirm: "Import {{count}} environments",
@@ -738,13 +736,15 @@ export const copy = {
         tagsHint: "Separate multiple tags with commas.",
         notes: "Notes",
         startUrl: "Start URL",
+        chromiumEngine: "Chromium / Chrome",
+        camoufoxEngine: "Camoufox / Firefox",
         chromePathOverride: "Chrome Path Override",
         chromePathHint: "Leave empty to use the Chrome path from app settings.",
         camoufoxPathOverride: "Camoufox Python Path",
         camoufoxPathHint:
           "Optional. Use a Python executable that can import camoufox; leave empty to auto-detect python3/python.",
         camoufoxRuntimeHint:
-          "Camoufox environments can be launched and stopped by Orbit with proxy, locale, timezone, WebRTC protection, persistent profiles, and automation control.",
+          "Camoufox generates a coherent Firefox fingerprint for the target platform with proxy, locale, WebRTC protection, and persistent profiles.",
         chromeNativeRuntimeHint:
           "Chrome automatically matches language, Intl locale, timezone, and geolocation to the proxy exit IP while preserving native User-Agent, platform, and fonts without page patch scripts.",
         chromeTimezoneHint:
@@ -752,6 +752,10 @@ export const copy = {
         profileDir: "Profile Directory",
         profileHint: "Leave empty to let the app create an isolated profile.",
         webRtcProtection: "Enable WebRTC leak protection",
+        targetOs: "Target Platform",
+        targetOsAuto: "Current System (Recommended)",
+        targetOsHint:
+          "Automatic mode matches the host OS; you can also fix the fingerprint to Windows, macOS, or Linux.",
         locale: "Locale",
         localeHint: "Use auto to derive browser languages and Intl locale from the IP region.",
         proxyType: "Type",
@@ -772,13 +776,6 @@ export const copy = {
           "Leave empty to disable virtual location. Range: -180 to 180.",
         viewportWidth: "Viewport Width",
         viewportHeight: "Viewport Height",
-        scaleFactor: "Scale Factor",
-        platform: "Platform",
-        platformHint: "Leave empty or use auto to derive it from the current OS, such as MacIntel or Win32.",
-        seed: "Random Seed",
-        seedHint: "Reserved field. Leave empty to slightly vary system metadata on every launch.",
-        userAgent: "User-Agent",
-        userAgentHint: "Leave empty or use auto to preserve Chrome's native User-Agent, Client Hints, and platform information.",
       },
     },
     tasks: {

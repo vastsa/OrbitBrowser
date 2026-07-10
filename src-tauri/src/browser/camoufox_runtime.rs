@@ -342,6 +342,9 @@ def main():
     thread.start()
 
     with Camoufox(**build_kwargs(profile)) as browser:
+        # Camoufox 0.4.11 can corrupt Brotli/Zstd responses on some sites.
+        browser.set_extra_http_headers({"Accept-Encoding": "gzip, deflate"})
+
         page = browser.pages[0] if browser.pages else browser.new_page()
         install_recorders(page)
         start_url = profile.get("start_url") or "about:blank"
@@ -350,8 +353,14 @@ def main():
         ready = True
         print(json.dumps({"event": "ready"}), flush=True)
         while running:
+            open_pages = [candidate for candidate in browser.pages if not candidate.is_closed()]
+            if not open_pages:
+                break
+            if page.is_closed():
+                page = open_pages[0]
             if drain_requests(page) == 0:
                 time.sleep(0.05)
+        ready = False
     server.shutdown()
     return 0
 
@@ -378,8 +387,9 @@ pub fn build(
     let worker_script_path = runtime_dir.join("orbit_camoufox_worker.py");
     std::fs::write(&worker_script_path, WORKER_SCRIPT)?;
 
-    let profile_json_path = runtime_dir.join(format!("{}.json", env.id));
-    let log_path = runtime_dir.join(format!("{}.log", env.id));
+    let runtime_stem = runtime_file_stem(&env.id, control_port);
+    let profile_json_path = runtime_dir.join(format!("{runtime_stem}.json"));
+    let log_path = runtime_dir.join(format!("{runtime_stem}.log"));
     std::fs::write(
         &profile_json_path,
         serde_json::to_string_pretty(&worker_profile(
@@ -397,6 +407,10 @@ pub fn build(
     })
 }
 
+fn runtime_file_stem(environment_id: &str, control_port: u16) -> String {
+    format!("{environment_id}-{control_port}")
+}
+
 fn worker_profile(
     env: &Environment,
     profile_dir: &Path,
@@ -410,7 +424,7 @@ fn worker_profile(
         "headless": env.headless,
         "web_rtc_protection": env.web_rtc_protection,
         "locale": runtime_locale,
-        "os": platform_to_camoufox_os(env.platform.as_deref()),
+        "os": camoufox_os_constraint(env.platform.as_deref()),
         "viewport_width": env.viewport_width,
         "viewport_height": env.viewport_height,
         "start_url": env.start_url.as_deref().unwrap_or("about:blank"),
@@ -439,15 +453,70 @@ fn proxy_profile(env: &Environment) -> Value {
     })
 }
 
-fn platform_to_camoufox_os(platform: Option<&str>) -> Option<&'static str> {
-    let platform = platform?.to_ascii_lowercase();
+fn camoufox_os_constraint(platform: Option<&str>) -> Value {
+    json!(resolved_camoufox_os(platform))
+}
+
+fn resolved_camoufox_os(platform: Option<&str>) -> &'static str {
+    let platform = platform.unwrap_or_default().to_ascii_lowercase();
     if platform.contains("win") {
-        Some("windows")
+        "windows"
     } else if platform.contains("mac") {
-        Some("macos")
+        "macos"
     } else if platform.contains("linux") {
-        Some("linux")
+        "linux"
     } else {
-        None
+        host_camoufox_os()
+    }
+}
+
+fn host_camoufox_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_target_os_maps_to_camoufox_constraint() {
+        assert_eq!(camoufox_os_constraint(Some("windows")), json!("windows"));
+        assert_eq!(camoufox_os_constraint(Some("MacIntel")), json!("macos"));
+        assert_eq!(camoufox_os_constraint(Some("linux")), json!("linux"));
+    }
+
+    #[test]
+    fn auto_target_os_uses_the_host_platform() {
+        assert_eq!(
+            camoufox_os_constraint(Some("auto")),
+            json!(host_camoufox_os())
+        );
+        assert_eq!(camoufox_os_constraint(None), json!(host_camoufox_os()));
+    }
+
+    #[test]
+    fn runtime_files_are_isolated_per_launch() {
+        assert_ne!(
+            runtime_file_stem("env-1", 9100),
+            runtime_file_stem("env-1", 9101)
+        );
+    }
+
+    #[test]
+    fn worker_stops_after_the_last_page_closes() {
+        assert!(WORKER_SCRIPT.contains("if not open_pages:"));
+        assert!(WORKER_SCRIPT.contains("ready = False"));
+    }
+
+    #[test]
+    fn worker_avoids_camoufox_compressed_response_corruption() {
+        assert!(WORKER_SCRIPT
+            .contains("browser.set_extra_http_headers({\"Accept-Encoding\": \"gzip, deflate\"})"));
     }
 }

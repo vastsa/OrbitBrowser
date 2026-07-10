@@ -45,6 +45,7 @@ import {
 import { useUiStore } from "@/stores/uiStore";
 import type {
   BrowserKind,
+  CamoufoxTargetOs,
   Environment,
   EnvironmentDraft,
   ProxyConfig,
@@ -69,8 +70,15 @@ const proxyKinds = new Set<ProxyKind>([
   "socks4",
   "socks5",
 ]);
+const browserKinds = new Set<BrowserKind>(["chrome", "camoufox"]);
+const camoufoxTargetOsValues = new Set<CamoufoxTargetOs>([
+  "auto",
+  "windows",
+  "macos",
+  "linux",
+]);
 const importPlaceholder =
-  "name,group,tags,proxy_kind,proxy_host,proxy_port,locale,timezone,start_url";
+  "name,browser,target_os,group,tags,proxy_kind,proxy_host,proxy_port,locale,timezone,start_url";
 
 type ImportPreview = {
   drafts: EnvironmentDraft[];
@@ -109,8 +117,8 @@ function createDefaultEnvironment(
       settings?.default_timezone_id || fallbackEnvironmentDefaults.timezone_id,
     geolocation_latitude: undefined,
     geolocation_longitude: undefined,
-    user_agent: "",
-    platform: "",
+    user_agent: undefined,
+    platform: "auto",
     web_rtc_protection: true,
     viewport_width:
       settings?.default_viewport_width ||
@@ -120,7 +128,7 @@ function createDefaultEnvironment(
       fallbackEnvironmentDefaults.viewport_height,
     device_scale_factor: 1,
     environment_mode: "standard",
-    seed: "",
+    seed: undefined,
     headless: false,
     start_url: "about:blank",
   });
@@ -145,14 +153,14 @@ function toDraft(environment?: Environment): EnvironmentDraft {
     timezone_id: environment.timezone_id,
     geolocation_latitude: environment.geolocation_latitude,
     geolocation_longitude: environment.geolocation_longitude,
-    user_agent: environment.user_agent ?? "",
-    platform: environment.platform ?? "",
+    user_agent: undefined,
+    platform: normalizeCamoufoxTargetOs(environment.platform),
     web_rtc_protection: environment.web_rtc_protection,
     viewport_width: environment.viewport_width,
     viewport_height: environment.viewport_height,
     device_scale_factor: environment.device_scale_factor,
     environment_mode: environment.environment_mode,
-    seed: environment.seed ?? "",
+    seed: undefined,
     headless: environment.headless,
     start_url: environment.start_url ?? "",
   });
@@ -207,11 +215,11 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
       fallbackEnvironmentDefaults.timezone_id,
     geolocation_latitude: draft.geolocation_latitude,
     geolocation_longitude: draft.geolocation_longitude,
-    user_agent: cleanOptionalText(draft.user_agent),
-    platform: cleanOptionalText(draft.platform),
+    user_agent: undefined,
+    platform: normalizeCamoufoxTargetOs(draft.platform),
     web_rtc_protection: draft.web_rtc_protection,
     environment_mode: draft.environment_mode ?? "standard",
-    seed: cleanOptionalText(draft.seed),
+    seed: undefined,
     start_url: cleanOptionalText(draft.start_url),
   };
 
@@ -230,7 +238,11 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
     };
   }
 
-  return normalized;
+  return {
+    ...normalized,
+    device_scale_factor: 1,
+    environment_mode: "standard",
+  };
 }
 
 function parseTagsText(value: string): string[] {
@@ -243,6 +255,30 @@ function parseTagsText(value: string): string[] {
 function normalizeProxyKind(value: string): ProxyKind {
   const normalized = value.trim().toLowerCase() as ProxyKind;
   return proxyKinds.has(normalized) ? normalized : "none";
+}
+
+function normalizeBrowserKind(value: string, fallback: BrowserKind): BrowserKind {
+  const normalized = value.trim().toLowerCase() as BrowserKind;
+  return browserKinds.has(normalized) ? normalized : fallback;
+}
+
+function normalizeCamoufoxTargetOs(
+  value?: string | null,
+): CamoufoxTargetOs {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (camoufoxTargetOsValues.has(normalized as CamoufoxTargetOs)) {
+    return normalized as CamoufoxTargetOs;
+  }
+  if (normalized.includes("win")) {
+    return "windows";
+  }
+  if (normalized.includes("mac")) {
+    return "macos";
+  }
+  if (normalized.includes("linux")) {
+    return "linux";
+  }
+  return "auto";
 }
 
 function parseBoolean(value: unknown, fallback = false): boolean {
@@ -382,12 +418,14 @@ function importRowsToDrafts(
         group_id: readText(row, ["group", "group_id", "分组"]) || undefined,
         tags: importedTags.length > 0 ? importedTags : (base.tags ?? []),
         notes: readText(row, ["notes", "备注"]) || undefined,
-        browser_kind:
-          (readText(row, [
+        browser_kind: normalizeBrowserKind(
+          readText(row, [
             "browser",
             "browser_kind",
             "浏览器",
-          ]) as BrowserKind) || base.browser_kind,
+          ]),
+          base.browser_kind,
+        ),
         chrome_path_override:
           readText(row, [
             "chrome_path",
@@ -396,6 +434,9 @@ function importRowsToDrafts(
           ]) || undefined,
         proxy_config: proxyConfig,
         locale: readText(row, ["locale", "语言"]) || base.locale,
+        platform: normalizeCamoufoxTargetOs(
+          readText(row, ["target_os", "platform", "目标平台", "平台"]),
+        ),
         timezone_id:
           readText(row, ["timezone", "timezone_id", "时区"]) ||
           base.timezone_id,
@@ -488,6 +529,8 @@ export function EnvironmentsPage() {
     queryKey: ["environment-statuses"],
     queryFn: browserApi.getEnvironmentStatuses,
     refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
   });
 
   const settingsQuery = useQuery({
@@ -1664,8 +1707,8 @@ function EnvironmentModal({
               }
               value={draft.browser_kind}
             >
-              <option value="chrome">Chrome</option>
-              <option value="camoufox">Camoufox</option>
+              <option value="chrome">{text.fields.chromiumEngine}</option>
+              <option value="camoufox">{text.fields.camoufoxEngine}</option>
             </SelectField>
             <TextField
               label={text.fields.startUrl}
@@ -1795,12 +1838,30 @@ function EnvironmentModal({
           ) : null}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {draft.browser_kind === "camoufox" ? (
-              <TextField
-                hint={text.fields.localeHint}
-                label={text.fields.locale}
-                onChange={(event) => update("locale", event.target.value)}
-                value={draft.locale}
-              />
+              <>
+                <SelectField
+                  hint={text.fields.targetOsHint}
+                  label={text.fields.targetOs}
+                  onChange={(event) =>
+                    update(
+                      "platform",
+                      event.target.value as CamoufoxTargetOs,
+                    )
+                  }
+                  value={normalizeCamoufoxTargetOs(draft.platform)}
+                >
+                  <option value="auto">{text.fields.targetOsAuto}</option>
+                  <option value="windows">Windows</option>
+                  <option value="macos">macOS</option>
+                  <option value="linux">Linux</option>
+                </SelectField>
+                <TextField
+                  hint={text.fields.localeHint}
+                  label={text.fields.locale}
+                  onChange={(event) => update("locale", event.target.value)}
+                  value={draft.locale}
+                />
+              </>
             ) : null}
             <TextField
               disabled={draft.browser_kind === "chrome"}
@@ -1863,39 +1924,9 @@ function EnvironmentModal({
                   type="number"
                   value={draft.viewport_height}
                 />
-                <TextField
-                  label={text.fields.scaleFactor}
-                  min={0.5}
-                  onChange={(event) =>
-                    update("device_scale_factor", Number(event.target.value) || 1)
-                  }
-                  step={0.25}
-                  type="number"
-                  value={draft.device_scale_factor}
-                />
-                <TextField
-                  hint={text.fields.platformHint}
-                  label={text.fields.platform}
-                  onChange={(event) => update("platform", event.target.value)}
-                  value={draft.platform ?? ""}
-                />
-                <TextField
-                  hint={text.fields.seedHint}
-                  label={text.fields.seed}
-                  onChange={(event) => update("seed", event.target.value)}
-                  value={draft.seed ?? ""}
-                />
               </>
             ) : null}
           </div>
-          {draft.browser_kind === "camoufox" ? (
-            <TextareaField
-              hint={text.fields.userAgentHint}
-              label={text.fields.userAgent}
-              onChange={(event) => update("user_agent", event.target.value)}
-              value={draft.user_agent ?? ""}
-            />
-          ) : null}
         </section>
       </div>
     </Modal>
