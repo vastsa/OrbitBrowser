@@ -845,6 +845,23 @@ const MAX_AGENT_TOOL_TURNS = 12;
 const MAX_AGENT_CONTEXT_CHARS = 80_000;
 const MAX_RECENT_API_MESSAGES = 40;
 
+function resolveAgentEnvironmentId(
+  environments: Environment[],
+  currentEnvironmentId: string,
+  persistedEnvironmentId: string | null,
+): string {
+  if (environments.some((item) => item.id === currentEnvironmentId)) {
+    return currentEnvironmentId;
+  }
+  if (
+    persistedEnvironmentId &&
+    environments.some((item) => item.id === persistedEnvironmentId)
+  ) {
+    return persistedEnvironmentId;
+  }
+  return environments[0]?.id ?? "";
+}
+
 function lastAgentSessionKey(environmentId: string) {
   return `${LAST_AGENT_SESSION_KEY_PREFIX}.${environmentId}`;
 }
@@ -1243,7 +1260,7 @@ export function AgentPage() {
   }, [collapsedSidePanels, sidePanelMaxHeight]);
 
   useEffect(() => {
-    if (!environmentId) return;
+    if (!environmentId || !selectedEnvironment) return;
 
     if (isRunning && agentRuntimeRefs.environmentId === environmentId) {
       setSessionId(agentRuntimeRefs.sessionId);
@@ -1282,7 +1299,7 @@ export function AgentPage() {
     return () => {
       cancelled = true;
     };
-  }, [environmentId]);
+  }, [environmentId, selectedEnvironment?.id]);
 
   useEffect(() => {
     if (!environmentId || !sessionId || loadedHistoryRef.current === activeHistoryKey) return;
@@ -1355,26 +1372,38 @@ export function AgentPage() {
       settingsQuery.data?.aigc_model?.trim() &&
       settingsQuery.data?.aigc_api_key?.trim(),
   );
-  const ready = Boolean(environmentId && aigcConfigured);
+  const ready = Boolean(selectedEnvironment && aigcConfigured);
 
   useEffect(() => {
-    if (environmentId || !environmentsQuery.data?.length) return;
+    const environments = environmentsQuery.data;
+    if (!environments || isRunning) return;
 
     const lastEnvironmentId =
       typeof window === "undefined"
         ? null
         : window.localStorage.getItem(LAST_AGENT_ENVIRONMENT_KEY);
-    const nextEnvironment =
-      environmentsQuery.data.find((item) => item.id === lastEnvironmentId) ??
-      environmentsQuery.data[0];
-    setEnvironmentId(nextEnvironment.id);
-  }, [environmentId, environmentsQuery.data]);
+    const nextEnvironmentId = resolveAgentEnvironmentId(
+      environments,
+      environmentId,
+      lastEnvironmentId,
+    );
+    if (nextEnvironmentId === environmentId) return;
+
+    setEnvironmentId(nextEnvironmentId);
+    if (!nextEnvironmentId) {
+      agentRuntimeRefs.environmentId = "";
+      agentRuntimeRefs.sessionId = "";
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(LAST_AGENT_ENVIRONMENT_KEY);
+      }
+    }
+  }, [environmentId, environmentsQuery.data, isRunning]);
 
   useEffect(() => {
-    if (!environmentId || typeof window === "undefined") return;
+    if (!selectedEnvironment || typeof window === "undefined") return;
     agentRuntimeRefs.environmentId = environmentId;
     window.localStorage.setItem(LAST_AGENT_ENVIRONMENT_KEY, environmentId);
-  }, [environmentId]);
+  }, [environmentId, selectedEnvironment?.id]);
 
   useEffect(() => {
     if (!environmentId || !sessionId || typeof window === "undefined") return;
@@ -2307,9 +2336,9 @@ log.info("message");
   };
 
   const refreshContext = async () => {
-    if (!environmentId) return;
+    if (!selectedEnvironment) return;
     const result = await browserApi.agentBrowserAction({
-      environment_id: environmentId,
+      environment_id: selectedEnvironment.id,
       action: "context",
       include_screenshot: false,
     });
@@ -2318,10 +2347,10 @@ log.info("message");
   };
 
   const toggleRecording = async () => {
-    if (!environmentId) return;
+    if (!selectedEnvironment) return;
     const result = recording?.is_recording
-      ? await browserApi.agentStopBrowserRecording(environmentId)
-      : await browserApi.agentStartBrowserRecording(environmentId);
+      ? await browserApi.agentStopBrowserRecording(selectedEnvironment.id)
+      : await browserApi.agentStartBrowserRecording(selectedEnvironment.id);
     setRecording(result);
     expandSidePanel("recording");
   };
@@ -2352,7 +2381,7 @@ log.info("message");
         <Button
           icon={<Plus className="h-4 w-4" />}
           onClick={newSession}
-          disabled={!environmentId || isRunning}
+          disabled={!selectedEnvironment || isRunning}
         >
           {text.newSession}
         </Button>
@@ -2369,7 +2398,7 @@ log.info("message");
         <Button
           icon={<FileSearch className="h-4 w-4" />}
           onClick={refreshContext}
-          disabled={!environmentId}
+          disabled={!selectedEnvironment}
         >
           {text.readContext}
         </Button>
@@ -2382,7 +2411,7 @@ log.info("message");
             )
           }
           onClick={toggleRecording}
-          disabled={!environmentId}
+          disabled={!selectedEnvironment}
           variant={recording?.is_recording ? "danger" : "primary"}
         >
           {recording?.is_recording ? text.stopRecording : text.startRecording}
