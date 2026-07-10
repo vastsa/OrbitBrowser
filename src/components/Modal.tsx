@@ -45,7 +45,14 @@ export function Modal({
   }
 
   return (
-    <div className="modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/40 p-5">
+    <div
+      className="modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/40 p-5"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <section
         aria-labelledby={titleId}
         aria-modal="true"
@@ -58,6 +65,7 @@ export function Modal({
           </h2>
           <Button
             aria-label={copy.common.close}
+            autoFocus
             className="w-9 px-0"
             icon={<X className="h-4 w-4" />}
             onClick={onClose}

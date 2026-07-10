@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ActionMenu } from "@/components/ActionMenu";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/EmptyState";
 import {
@@ -927,7 +928,7 @@ export function EnvironmentsPage() {
             ))}
           </SelectControl>
         </div>
-        <div className="-mx-3 -mb-3 mt-3 flex flex-wrap items-center gap-2 border-t border-line bg-ink-50 px-3 py-2.5">
+        <div className="-mx-3 -mb-3 mt-3 flex min-h-14 flex-wrap items-center gap-2 border-t border-line bg-ink-50 px-3 py-2.5">
           <Button
             icon={
               allFilteredSelected ? (
@@ -952,62 +953,69 @@ export function EnvironmentsPage() {
           <span className="mr-auto text-xs font-medium text-ink-500">
             {format(text.bulk.selected, { count: selectedCount })}
           </span>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Wifi className="h-4 w-4" />}
-            onClick={() => bulkOperationMutation.mutate("testProxy")}
-            size="sm"
-          >
-            {text.bulk.testProxy}
-          </Button>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Play className="h-4 w-4" />}
-            onClick={() => bulkOperationMutation.mutate("start")}
-            size="sm"
-          >
-            {text.bulk.start}
-          </Button>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Power className="h-4 w-4" />}
-            onClick={() => bulkOperationMutation.mutate("stop")}
-            size="sm"
-          >
-            {text.bulk.stop}
-          </Button>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Copy className="h-4 w-4" />}
-            onClick={() => bulkOperationMutation.mutate("duplicate")}
-            size="sm"
-          >
-            {text.bulk.duplicate}
-          </Button>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Tags className="h-4 w-4" />}
-            onClick={() => {
-              setBulkEditDraft({
-                group_id: selectedEnvironments[0]?.group_id ?? "",
-                tags: "",
-                mode: "append",
-              });
-              setBulkEditOpen(true);
-            }}
-            size="sm"
-          >
-            {text.bulk.editTags}
-          </Button>
-          <Button
-            disabled={selectedCount === 0 || busy}
-            icon={<Trash2 className="h-4 w-4" />}
-            onClick={() => setBulkDeleteOpen(true)}
-            size="sm"
-            variant="danger"
-          >
-            {text.bulk.delete}
-          </Button>
+          {selectedCount > 0 ? (
+            <>
+              <Button
+                disabled={busy}
+                icon={<Play className="h-4 w-4" />}
+                onClick={() => bulkOperationMutation.mutate("start")}
+                size="sm"
+              >
+                {text.bulk.start}
+              </Button>
+              <Button
+                disabled={busy}
+                icon={<Power className="h-4 w-4" />}
+                onClick={() => bulkOperationMutation.mutate("stop")}
+                size="sm"
+              >
+                {text.bulk.stop}
+              </Button>
+              <Button
+                disabled={busy}
+                icon={<Tags className="h-4 w-4" />}
+                onClick={() => {
+                  setBulkEditDraft({
+                    group_id: selectedEnvironments[0]?.group_id ?? "",
+                    tags: "",
+                    mode: "append",
+                  });
+                  setBulkEditOpen(true);
+                }}
+                size="sm"
+              >
+                {text.bulk.editTags}
+              </Button>
+              <ActionMenu
+                ariaLabel={copy.common.moreActions}
+                disabled={busy}
+                items={[
+                  {
+                    label: text.bulk.testProxy,
+                    icon: <Wifi className="h-4 w-4" />,
+                    onSelect: () =>
+                      bulkOperationMutation.mutate("testProxy"),
+                  },
+                  {
+                    label: text.bulk.duplicate,
+                    icon: <Copy className="h-4 w-4" />,
+                    onSelect: () =>
+                      bulkOperationMutation.mutate("duplicate"),
+                  },
+                  {
+                    label: text.bulk.delete,
+                    icon: <Trash2 className="h-4 w-4" />,
+                    onSelect: () => setBulkDeleteOpen(true),
+                    danger: true,
+                    restoreFocus: false,
+                    separatorBefore: true,
+                  },
+                ]}
+                label={copy.common.more}
+                showLabel
+              />
+            </>
+          ) : null}
         </div>
       </section>
 
@@ -1188,7 +1196,7 @@ export function EnvironmentsPage() {
                           {formatDateTime(environment.updated_at, language)}
                         </td>
                         <td className="table-action-cell">
-                          <div className="flex w-[196px] flex-wrap justify-end gap-1">
+                          <div className="flex w-28 flex-nowrap justify-end gap-1">
                             {runtime.status === "running" ? (
                               <Button
                                 aria-label={text.actions.stop}
@@ -1213,69 +1221,74 @@ export function EnvironmentsPage() {
                               />
                             )}
                             <Button
-                              aria-label={text.actions.restart}
-                              className="h-7 px-1.5"
-                              disabled={busy}
-                              icon={<RefreshCw className="h-4 w-4" />}
-                              onClick={() =>
-                                restartMutation.mutate(environment.id)
-                              }
-                              variant="ghost"
-                            />
-                            <Button
-                              aria-label={text.actions.testProxy}
-                              className="h-7 px-1.5"
-                              disabled={testProxyMutation.isPending}
-                              icon={<Wifi className="h-4 w-4" />}
-                              onClick={() =>
-                                testProxyMutation.mutate(environment.id)
-                              }
-                              variant="ghost"
-                            />
-                            <Button
-                              aria-label={text.actions.openProfile}
-                              className="h-7 px-1.5"
-                              disabled={openProfileMutation.isPending}
-                              icon={<FolderOpen className="h-4 w-4" />}
-                              onClick={() =>
-                                openProfileMutation.mutate(environment.id)
-                              }
-                              variant="ghost"
-                            />
-                            <Button
-                              aria-label={text.actions.copyId}
-                              className="h-7 px-1.5"
-                              icon={<Copy className="h-4 w-4" />}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void copyEnvironmentId(environment.id);
-                              }}
-                              variant="ghost"
-                            />
-                            <Button
                               aria-label={copy.common.edit}
-                              className="h-7 px-1.5"
+                              className="h-7 w-7 px-0"
                               icon={<Edit2 className="h-4 w-4" />}
                               onClick={() => setEditing(toDraft(environment))}
                               variant="ghost"
                             />
-                            <Button
-                              aria-label={text.actions.duplicate}
-                              className="h-7 px-1.5"
+                            <ActionMenu
+                              ariaLabel={`${copy.common.moreActions}: ${environment.name}`}
                               disabled={busy}
-                              icon={<SquareStack className="h-4 w-4" />}
-                              onClick={() =>
-                                duplicateMutation.mutate(environment.id)
-                              }
-                              variant="ghost"
-                            />
-                            <Button
-                              aria-label={copy.common.delete}
-                              className="h-7 px-1.5"
-                              disabled={busy}
-                              icon={<Trash2 className="h-4 w-4" />}
-                              onClick={() => setDeleteTarget(environment)}
-                              variant="ghost"
+                              items={[
+                                ...(runtime.status === "running"
+                                  ? [
+                                      {
+                                        label: text.actions.restart,
+                                        icon: (
+                                          <RefreshCw className="h-4 w-4" />
+                                        ),
+                                        onSelect: () =>
+                                          restartMutation.mutate(
+                                            environment.id,
+                                          ),
+                                      },
+                                    ]
+                                  : []),
+                                ...(proxy.kind !== "none"
+                                  ? [
+                                      {
+                                        label: text.actions.testProxy,
+                                        icon: <Wifi className="h-4 w-4" />,
+                                        onSelect: () =>
+                                          testProxyMutation.mutate(
+                                            environment.id,
+                                          ),
+                                        disabled:
+                                          testProxyMutation.isPending,
+                                      },
+                                    ]
+                                  : []),
+                                {
+                                  label: text.actions.openProfile,
+                                  icon: <FolderOpen className="h-4 w-4" />,
+                                  onSelect: () =>
+                                    openProfileMutation.mutate(environment.id),
+                                  disabled: openProfileMutation.isPending,
+                                },
+                                {
+                                  label: text.actions.copyId,
+                                  icon: <Copy className="h-4 w-4" />,
+                                  onSelect: () =>
+                                    void copyEnvironmentId(environment.id),
+                                },
+                                {
+                                  label: text.actions.duplicate,
+                                  icon: <SquareStack className="h-4 w-4" />,
+                                  onSelect: () =>
+                                    duplicateMutation.mutate(environment.id),
+                                  separatorBefore: true,
+                                },
+                                {
+                                  label: copy.common.delete,
+                                  icon: <Trash2 className="h-4 w-4" />,
+                                  onSelect: () => setDeleteTarget(environment),
+                                  danger: true,
+                                  restoreFocus: false,
+                                  separatorBefore: true,
+                                },
+                              ]}
+                              label={copy.common.more}
                             />
                           </div>
                         </td>

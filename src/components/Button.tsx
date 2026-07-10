@@ -1,4 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import {
+  forwardRef,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "sm" | "md";
@@ -25,35 +29,41 @@ const sizeClass: Record<ButtonSize, string> = {
   sm: "h-8 px-3 text-xs",
 };
 
-export function Button({
-  children,
-  className = "",
-  disabled,
-  icon,
-  size = "md",
-  title,
-  variant = "secondary",
-  type = "button",
-  ...props
-}: ButtonProps) {
-  const ariaLabel = props["aria-label"];
-  const resolvedTitle =
-    title ?? (typeof ariaLabel === "string" ? ariaLabel : undefined);
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button(
+    {
+      children,
+      className = "",
+      disabled,
+      icon,
+      size = "md",
+      title,
+      variant = "secondary",
+      type = "button",
+      ...props
+    },
+    ref,
+  ) {
+    const ariaLabel = props["aria-label"];
+    const resolvedTitle =
+      title ?? (typeof ariaLabel === "string" ? ariaLabel : undefined);
 
-  return (
-    <button
-      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40 ${sizeClass[size]} ${variantClass[variant]} ${className}`}
-      disabled={disabled}
-      title={resolvedTitle}
-      type={type}
-      {...props}
-    >
-      {icon ? (
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          {icon}
-        </span>
-      ) : null}
-      {children}
-    </button>
-  );
-}
+    return (
+      <button
+        className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40 ${sizeClass[size]} ${variantClass[variant]} ${className}`}
+        disabled={disabled}
+        ref={ref}
+        title={resolvedTitle}
+        type={type}
+        {...props}
+      >
+        {icon ? (
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            {icon}
+          </span>
+        ) : null}
+        {children}
+      </button>
+    );
+  },
+);
