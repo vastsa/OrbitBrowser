@@ -3,9 +3,11 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
+  Edit2,
   Play,
   Plus,
   Save,
+  Search,
   Server,
   Trash2,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import { Modal } from "@/components/Modal";
 import {
   SectionHeader,
   SkeletonRows,
+  TablePagination,
 } from "@/components/PageScaffold";
 import { StatusBadge } from "@/components/StatusBadge";
 import { copy as i18nCopy, useI18n } from "@/i18n";
@@ -117,6 +120,9 @@ export function TasksPage() {
   const navigate = useNavigate();
   const { copy, language } = useI18n();
   const text = copy.tasks;
+  const [search, setSearch] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const tasksQuery = useQuery({
     queryKey: ["tasks"],
@@ -124,100 +130,197 @@ export function TasksPage() {
   });
 
   const tasks = tasksQuery.data ?? [];
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredTasks = useMemo(() => {
+    if (!normalizedSearch) {
+      return tasks;
+    }
+
+    return tasks.filter((task) =>
+      [task.name, task.description ?? "", task.script, task.api_version]
+        .join("\n")
+        .toLowerCase()
+        .includes(normalizedSearch),
+    );
+  }, [normalizedSearch, tasks]);
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * pageSize;
+  const pagedTasks = filteredTasks.slice(pageStart, pageStart + pageSize);
   const setHeaderActions = useUiStore((state) => state.setHeaderActions);
+
+  const openTask = (taskId: string) => navigate(`/tasks/${taskId}`);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [normalizedSearch, pageSize]);
+
+  useEffect(() => {
+    if (pageIndex >= totalPages) {
+      setPageIndex(totalPages - 1);
+    }
+  }, [pageIndex, totalPages]);
 
   useEffect(() => {
     setHeaderActions(
-      <Button
-        icon={<Plus className="h-4 w-4" />}
-        onClick={() => navigate("/tasks/new")}
-        variant="primary"
-      >
-        {text.newTask}
-      </Button>,
+      <>
+        <div className="hidden items-center rounded-md border border-line bg-ink-50 px-3 py-1.5 text-xs font-medium text-ink-500 sm:flex">
+          {tasks.length}
+          {text.countUnit ? ` ${text.countUnit}` : ""}
+        </div>
+        <Button
+          icon={<Plus className="h-4 w-4" />}
+          onClick={() => navigate("/tasks/new")}
+          variant="primary"
+        >
+          {text.newTask}
+        </Button>
+      </>,
     );
 
     return () => setHeaderActions(undefined);
-  }, [navigate, setHeaderActions, text.newTask]);
+  }, [navigate, setHeaderActions, tasks.length, text.countUnit, text.newTask]);
 
   return (
-    <div className="viewport-page grid-rows-[minmax(0,1fr)]">
-      <section className="panel scroll-panel min-h-0 overflow-hidden">
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
-          <h2 className="text-sm font-semibold text-ink-900">{text.taskList}</h2>
+    <div className="viewport-page task-page-layout">
+      <section className="panel shrink-0 overflow-hidden p-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="task-search-field relative flex-1 md:max-w-xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-500" />
+            <input
+              aria-label={text.searchPlaceholder}
+              className="control-focus h-9 w-full rounded-md border border-line bg-white pl-9 pr-3 text-sm"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={text.searchPlaceholder}
+              value={search}
+            />
+          </div>
           <span className="rounded-md border border-line bg-ink-50 px-2 py-1 text-xs font-medium text-ink-500">
-            {tasks.length}
-            {text.countUnit ? ` ${text.countUnit}` : ""}
+            {filteredTasks.length} / {tasks.length}
           </span>
         </div>
+      </section>
 
-        <div className="scroll-panel p-3">
-          {tasksQuery.isLoading ? (
-            <SkeletonRows rows={8} />
-          ) : tasksQuery.isError ? (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-danger">
-              {errorMessage(tasksQuery.error)}
-            </div>
-          ) : tasks.length === 0 ? (
-            <EmptyState
-              className="border-0 bg-transparent"
-              action={
-                <Button
-                  icon={<Plus className="h-4 w-4" />}
-                  onClick={() => navigate("/tasks/new")}
-                  variant="primary"
-                >
-                  {text.newTask}
-                </Button>
-              }
-              description={text.emptyDescription}
-              icon={<ClipboardList className="h-5 w-5" />}
-              title={text.emptyTitle}
-            />
-          ) : (
-            <div className="overflow-hidden rounded-md border border-line bg-white">
-              {tasks.map((task) => (
-                <button
-                  className="grid w-full cursor-pointer gap-3 border-b border-line bg-white px-4 py-3 text-left transition-colors duration-150 last:border-b-0 hover:bg-ink-50 focus-visible:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 sm:grid-cols-[minmax(0,1fr)_180px_148px]"
-                  key={task.id}
-                  onClick={() => navigate(`/tasks/${task.id}`)}
-                  type="button"
-                >
-                  <span className="min-w-0">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <ClipboardList className="h-4 w-4 shrink-0 text-ink-500" />
-                      <span className="truncate text-sm font-medium text-ink-900">
-                        {task.name}
+      {tasksQuery.isLoading ? (
+        <section className="panel min-h-0 overflow-hidden">
+          <SkeletonRows rows={8} />
+        </section>
+      ) : tasksQuery.isError ? (
+        <EmptyState
+          description={errorMessage(tasksQuery.error)}
+          icon={<ClipboardList className="h-5 w-5" />}
+          title={text.loadFailed}
+        />
+      ) : tasks.length === 0 ? (
+        <EmptyState
+          action={
+            <Button
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => navigate("/tasks/new")}
+              variant="primary"
+            >
+              {text.newTask}
+            </Button>
+          }
+          description={text.emptyDescription}
+          icon={<ClipboardList className="h-5 w-5" />}
+          title={text.emptyTitle}
+        />
+      ) : filteredTasks.length === 0 ? (
+        <EmptyState
+          action={
+            <Button onClick={() => setSearch("")}>{text.clearFilter}</Button>
+          }
+          description={text.noMatchDescription}
+          icon={<Search className="h-5 w-5" />}
+          title={text.noMatchTitle}
+        />
+      ) : (
+        <section className="panel table-panel">
+          <div className="table-scroll task-table-scroll">
+            <table className="task-table border-collapse">
+              <thead className="table-header">
+                <tr>
+                  <th className="px-4 py-3">{text.table.task}</th>
+                  <th className="px-4 py-3">{text.table.apiVersion}</th>
+                  <th className="px-4 py-3">{text.table.timeout}</th>
+                  <th className="px-4 py-3">{text.table.scriptLines}</th>
+                  <th className="px-4 py-3">{text.table.updated}</th>
+                  <th className="table-action-header">
+                    {copy.common.actions}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedTasks.map((task) => (
+                  <tr
+                    className="task-table-row"
+                    key={task.id}
+                  >
+                    <td className="table-cell">
+                      <button
+                        className="task-row-link flex w-full min-w-0 items-start gap-3 text-left"
+                        onClick={() => openTask(task.id)}
+                        type="button"
+                      >
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink-100 text-ink-500">
+                          <ClipboardList className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-ink-900">
+                            {task.name}
+                          </div>
+                          <div className="mt-1 truncate text-xs text-ink-500">
+                            {task.description || copy.common.noDescription}
+                          </div>
+                        </div>
+                      </button>
+                    </td>
+                    <td className="table-cell text-ink-700">
+                      <span className="rounded-md bg-ink-100 px-2 py-1 text-xs font-medium text-ink-600">
+                        {task.api_version}
                       </span>
-                    </span>
-                    <span className="mt-1 line-clamp-2 text-xs leading-5 text-ink-500">
-                      {task.description || copy.common.noDescription}
-                    </span>
-                  </span>
-                  <span className="grid content-center gap-1 text-xs text-ink-500">
-                    <span>
-                      {text.timeout}: {task.timeout_sec} {text.seconds}
-                    </span>
-                    <span>
-                      {text.scriptLines}: {task.script.split("\n").length}
-                    </span>
-                  </span>
-                  <span className="flex items-center justify-start sm:justify-end">
-                    <span className="rounded-[5px] bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-600">
+                    </td>
+                    <td className="table-cell mono-tabular text-ink-700">
+                      {task.timeout_sec} {text.seconds}
+                    </td>
+                    <td className="table-cell mono-tabular text-ink-700">
+                      {task.script.split("\n").length}
+                    </td>
+                    <td className="table-cell text-ink-700">
                       {task.updated_at || task.created_at
                         ? formatDateTime(
                             task.updated_at ?? task.created_at,
                             language,
                           )
-                        : text.openTask}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+                        : "-"}
+                    </td>
+                    <td className="table-action-cell">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          aria-label={copy.common.edit}
+                          className="h-7 px-1.5"
+                          icon={<Edit2 className="h-4 w-4" />}
+                          onClick={() => openTask(task.id)}
+                          variant="ghost"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <TablePagination
+            labels={copy.common.pagination}
+            onPageIndexChange={setPageIndex}
+            onPageSizeChange={setPageSize}
+            pageIndex={safePageIndex}
+            pageSize={pageSize}
+            totalCount={filteredTasks.length}
+          />
+        </section>
+      )}
     </div>
   );
 }

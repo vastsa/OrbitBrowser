@@ -90,6 +90,16 @@
   --table-action-cell-hover-bg: rgb(var(--color-ink-50));
   --table-action-cell-selected-bg: rgb(var(--color-brand-50));
   --table-action-shadow: -1px 0 0 var(--divider-color);
+  --task-table-min-width: 51.25rem;
+  --task-table-name-column-width: 30%;
+  --task-table-name-column-min-width: 16rem;
+  --task-table-name-content-max-width: 28rem;
+  --task-table-api-column-width: 7.5rem;
+  --task-table-timeout-column-width: 8.5rem;
+  --task-table-lines-column-width: 8.5rem;
+  --task-table-updated-column-width: 12rem;
+  --task-table-action-column-width: 4.5rem;
+  --task-search-min-width: 15rem;
 
   --agent-surface-bg: rgb(var(--color-white));
 
@@ -576,6 +586,82 @@ textarea[data-code-editor="true"] {
   }
 
   .run-table .table-action-cell > div {
+    width: auto;
+    flex-wrap: nowrap;
+  }
+
+  .task-table-scroll > table {
+    width: 100%;
+    min-width: var(--task-table-min-width);
+    table-layout: fixed;
+  }
+
+  .task-page-layout {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .task-search-field {
+    min-width: var(--task-search-min-width);
+  }
+
+  .task-table-row {
+    transition: background-color 150ms ease-out;
+  }
+
+  .task-table-row:hover {
+    background-color: var(--table-row-hover-bg);
+  }
+
+  .task-row-link {
+    border-radius: 0.375rem;
+  }
+
+  .task-row-link:focus-visible {
+    outline: 2px solid rgb(var(--color-brand-500));
+    outline-offset: 2px;
+  }
+
+  .task-table :is(th, td) {
+    white-space: nowrap;
+  }
+
+  .task-table :is(th, td):nth-child(1) {
+    width: var(--task-table-name-column-width);
+    min-width: var(--task-table-name-column-min-width);
+  }
+
+  .task-table td:nth-child(1) > .task-row-link {
+    max-width: var(--task-table-name-content-max-width);
+  }
+
+  .task-table :is(th, td):nth-child(2) {
+    width: var(--task-table-api-column-width);
+  }
+
+  .task-table :is(th, td):nth-child(3) {
+    width: var(--task-table-timeout-column-width);
+  }
+
+  .task-table :is(th, td):nth-child(4) {
+    width: var(--task-table-lines-column-width);
+  }
+
+  .task-table :is(th, td):nth-child(5) {
+    width: var(--task-table-updated-column-width);
+  }
+
+  .task-table :is(th, td):nth-child(6) {
+    width: var(--task-table-action-column-width);
+    min-width: var(--task-table-action-column-width);
+    max-width: var(--task-table-action-column-width);
+  }
+
+  .task-table td:nth-child(5) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .task-table .table-action-cell > div {
     width: auto;
     flex-wrap: nowrap;
   }

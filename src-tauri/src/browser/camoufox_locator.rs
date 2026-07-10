@@ -20,6 +20,18 @@ pub struct CamoufoxDetectionResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CamoufoxInstallStage {
+    LocatingPython,
+    PreparingEnvironment,
+    UpdatingInstaller,
+    InstallingPackages,
+    FetchingBrowser,
+    DownloadingBrowserFallback,
+    Verifying,
+}
+
 pub fn detect() -> CamoufoxDetectionResult {
     let candidates = default_candidates();
     let searched_paths = candidates
@@ -93,7 +105,11 @@ pub fn resolve(override_path: Option<&str>) -> AppResult<String> {
     })
 }
 
-pub async fn install() -> AppResult<CamoufoxDetectionResult> {
+pub async fn install<F>(mut report_progress: F) -> AppResult<CamoufoxDetectionResult>
+where
+    F: FnMut(CamoufoxInstallStage, u8),
+{
+    report_progress(CamoufoxInstallStage::LocatingPython, 5);
     let bootstrap_python = python_bootstrap_path().ok_or_else(|| {
         AppError::new(
             "python_not_found",
@@ -101,13 +117,18 @@ pub async fn install() -> AppResult<CamoufoxDetectionResult> {
         )
         .retryable(true)
     })?;
+
+    report_progress(CamoufoxInstallStage::PreparingEnvironment, 15);
     let python = ensure_orbit_venv(&bootstrap_python).await?;
 
+    report_progress(CamoufoxInstallStage::UpdatingInstaller, 30);
     run_python_step(
         &python,
         &["-m", "pip", "install", "-U", "pip", "setuptools", "wheel"],
     )
     .await?;
+
+    report_progress(CamoufoxInstallStage::InstallingPackages, 50);
     run_python_step(
         &python,
         &[
@@ -120,12 +141,17 @@ pub async fn install() -> AppResult<CamoufoxDetectionResult> {
         ],
     )
     .await?;
+
+    report_progress(CamoufoxInstallStage::FetchingBrowser, 72);
     if run_python_step(&python, &["-m", "camoufox", "fetch"])
         .await
         .is_err()
     {
+        report_progress(CamoufoxInstallStage::DownloadingBrowserFallback, 84);
         install_camoufox_browser_direct(&python).await?;
     }
+
+    report_progress(CamoufoxInstallStage::Verifying, 95);
     validate_python_path(&python.to_string_lossy())
 }
 
@@ -354,4 +380,41 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
     std::env::split_paths(&paths)
         .map(|dir| dir.join(binary))
         .find(|path| path.exists())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn install_stages_serialize_to_frontend_keys() {
+        let cases = [
+            (CamoufoxInstallStage::LocatingPython, "locating_python"),
+            (
+                CamoufoxInstallStage::PreparingEnvironment,
+                "preparing_environment",
+            ),
+            (
+                CamoufoxInstallStage::UpdatingInstaller,
+                "updating_installer",
+            ),
+            (
+                CamoufoxInstallStage::InstallingPackages,
+                "installing_packages",
+            ),
+            (CamoufoxInstallStage::FetchingBrowser, "fetching_browser"),
+            (
+                CamoufoxInstallStage::DownloadingBrowserFallback,
+                "downloading_browser_fallback",
+            ),
+            (CamoufoxInstallStage::Verifying, "verifying"),
+        ];
+
+        for (stage, expected) in cases {
+            assert_eq!(
+                serde_json::to_value(stage).expect("stage should serialize"),
+                expected
+            );
+        }
+    }
 }

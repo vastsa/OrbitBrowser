@@ -320,6 +320,7 @@ function mockInvoke<TResult>(
       return {
         chrome_path:
           "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        camoufox_python_path: "/usr/bin/python3",
         default_concurrency: 2,
         default_locale: "zh-CN",
         default_timezone_id: "Asia/Shanghai",
@@ -720,8 +721,10 @@ export const browserApi = {
       { path },
     ),
 
-  installCamoufox: () =>
-    invokeCommand<CamoufoxDetectionResult>(COMMANDS.installCamoufox),
+  installCamoufox: (operationId: string) =>
+    invokeCommand<CamoufoxDetectionResult>(COMMANDS.installCamoufox, {
+      operationId,
+    }),
 
   openDataDir: () => invokeCommand<void>(COMMANDS.openDataDir),
 

@@ -591,7 +591,7 @@ fn tools() -> Vec<Value> {
     vec![
         tool(
             "orbit_get_settings",
-            "Read Orbit global settings, including persisted Chrome path and default runtime options.",
+            "Read Orbit global settings, including persisted Chrome and Camoufox Python paths and default runtime options.",
             empty_schema(),
         ),
         tool(
@@ -601,6 +601,7 @@ fn tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "chrome_path": { "type": ["string", "null"] },
+                    "camoufox_python_path": { "type": ["string", "null"] },
                     "default_concurrency": { "type": "integer", "minimum": 1 },
                     "default_locale": { "type": "string" },
                     "default_timezone_id": { "type": "string" },

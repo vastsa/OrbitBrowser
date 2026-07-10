@@ -14,7 +14,7 @@ use crate::errors::{AppError, AppResult};
 use crate::storage::{environment_repo, legacy_cleanup, run_repo, settings_repo};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -57,7 +57,6 @@ struct RuntimeFingerprint {
     geolocation: Option<GeolocationOverride>,
     user_agent: Option<String>,
     platform: Option<String>,
-    user_agent_metadata: Option<Value>,
     masked_fonts: Vec<String>,
 }
 
@@ -172,7 +171,7 @@ async fn start_environment_inner_with_options(
                 }
             } else {
                 if !matches!(env.browser_kind, BrowserKind::Camoufox) {
-                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
                     apply_and_watch_runtime(session.cdp_port, runtime_fingerprint).await;
                 }
                 return Ok(EnvironmentRuntimeStatus {
@@ -212,7 +211,7 @@ async fn start_environment_inner_with_options(
                 }
             } else {
                 if !matches!(env.browser_kind, BrowserKind::Camoufox) {
-                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
                     apply_and_watch_runtime(record.cdp_port, runtime_fingerprint).await;
                 }
                 state.sessions().upsert(BrowserSession {
@@ -266,7 +265,7 @@ async fn start_environment_inner_with_options(
                 }
             } else {
                 if !matches!(env.browser_kind, BrowserKind::Camoufox) {
-                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
                     apply_and_watch_runtime(lock.cdp_port, runtime_fingerprint).await;
                 }
                 return Ok(EnvironmentRuntimeStatus {
@@ -283,15 +282,21 @@ async fn start_environment_inner_with_options(
 
     let settings = settings_repo::get(state.db())?;
     if matches!(env.browser_kind, BrowserKind::Camoufox) {
-        return start_camoufox_environment(state, env, profile_dir, profile_dir_text).await;
+        return start_camoufox_environment(
+            state,
+            env,
+            profile_dir,
+            profile_dir_text,
+            settings.camoufox_python_path.as_deref(),
+        )
+        .await;
     }
     let chrome_path = chrome_locator::resolve(
         env.chrome_path_override.as_deref(),
         settings.chrome_path.as_deref(),
     )?;
     let cdp_port = port_allocator::allocate()?;
-    let chrome_version = chrome_locator::version(Path::new(&chrome_path));
-    let runtime_fingerprint = resolve_runtime_fingerprint(&env, chrome_version.as_deref()).await;
+    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
     let launch_options = chrome_args::ChromeRuntimeOptions {
         locale: runtime_fingerprint.locale.clone(),
         accept_language: runtime_fingerprint.accept_language.clone(),
@@ -388,9 +393,13 @@ async fn start_camoufox_environment(
     env: Environment,
     profile_dir: std::path::PathBuf,
     profile_dir_text: String,
+    settings_python_path: Option<&str>,
 ) -> AppResult<EnvironmentRuntimeStatus> {
-    let python_path = camoufox_locator::resolve(env.chrome_path_override.as_deref())?;
-    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+    let python_path = camoufox_locator::resolve(camoufox_python_override(
+        env.chrome_path_override.as_deref(),
+        settings_python_path,
+    ))?;
+    let runtime_fingerprint = resolve_runtime_fingerprint(&env).await;
     let control_port = port_allocator::allocate()?;
     let launch_plan = camoufox_runtime::build(
         state.data_dir(),
@@ -466,6 +475,15 @@ async fn start_camoufox_environment(
         cdp_port: Some(control_port),
         message: Some("Camoufox runtime started".to_string()),
     })
+}
+
+fn camoufox_python_override<'a>(
+    environment_path: Option<&'a str>,
+    settings_path: Option<&'a str>,
+) -> Option<&'a str> {
+    environment_path
+        .filter(|path| !path.trim().is_empty())
+        .or_else(|| settings_path.filter(|path| !path.trim().is_empty()))
 }
 
 async fn wait_for_camoufox_ready(
@@ -670,10 +688,7 @@ pub async fn test_environment_proxy(
     })
 }
 
-async fn resolve_runtime_fingerprint(
-    env: &Environment,
-    chrome_version: Option<&str>,
-) -> RuntimeFingerprint {
+async fn resolve_runtime_fingerprint(env: &Environment) -> RuntimeFingerprint {
     let configured_timezone_id = normalize_optional_text(env.timezone_id.clone());
     let configured_locale = normalize_optional_text(Some(env.locale.clone()));
     let needs_ip_probe = is_auto_timezone(configured_timezone_id.as_deref())
@@ -714,20 +729,8 @@ async fn resolve_runtime_fingerprint(
         .unwrap_or(locale_profile.accept_language)
         .to_string();
     let geolocation = resolve_runtime_geolocation(env, probe.as_ref());
-    let generated_user_agent = generate_user_agent(chrome_version);
-    let configured_user_agent = normalize_optional_text(env.user_agent.clone())
-        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
-    let (user_agent, user_agent_metadata) = if let Some(user_agent) = configured_user_agent {
-        (Some(user_agent), None)
-    } else {
-        (
-            generated_user_agent.user_agent,
-            generated_user_agent.user_agent_metadata,
-        )
-    };
-    let platform = normalize_optional_text(env.platform.clone())
-        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID))
-        .or(generated_user_agent.platform);
+    let (user_agent, platform) =
+        resolve_browser_identity_overrides(env.user_agent.clone(), env.platform.clone());
     let masked_fonts = chinese_font_mask_for_locale(&locale);
 
     RuntimeFingerprint {
@@ -737,9 +740,22 @@ async fn resolve_runtime_fingerprint(
         geolocation,
         user_agent,
         platform,
-        user_agent_metadata,
         masked_fonts,
     }
+}
+
+fn resolve_browser_identity_overrides(
+    user_agent: Option<String>,
+    platform: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let user_agent = normalize_optional_text(user_agent)
+        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+    let Some(user_agent) = user_agent else {
+        return (None, None);
+    };
+    let platform = normalize_optional_text(platform)
+        .filter(|value| !value.eq_ignore_ascii_case(AUTO_TIMEZONE_ID));
+    (Some(user_agent), platform)
 }
 
 fn resolve_runtime_geolocation(
@@ -1021,127 +1037,6 @@ fn chinese_font_mask_for_locale(locale: &str) -> Vec<String> {
     .collect()
 }
 
-#[derive(Debug, Clone)]
-struct GeneratedUserAgent {
-    user_agent: Option<String>,
-    platform: Option<String>,
-    user_agent_metadata: Option<Value>,
-}
-
-type ChromeVersionTuple = (u16, u16, u16, u16);
-
-fn generate_user_agent(chrome_version: Option<&str>) -> GeneratedUserAgent {
-    let Some(version) = parse_chrome_version(chrome_version) else {
-        return GeneratedUserAgent {
-            user_agent: None,
-            platform: None,
-            user_agent_metadata: None,
-        };
-    };
-    let full_version = format!("{}.{}.{}.{}", version.0, version.1, version.2, version.3);
-    let major = version.0.to_string();
-    let os = runtime_os_profile();
-    let user_agent = format!(
-        "Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36",
-        os.ua_platform, full_version
-    );
-    let user_agent_metadata = json!({
-        "brands": [
-            { "brand": "Not A(Brand", "version": "99" },
-            { "brand": "Google Chrome", "version": major },
-            { "brand": "Chromium", "version": major }
-        ],
-        "fullVersionList": [
-            { "brand": "Not A(Brand", "version": "99.0.0.0" },
-            { "brand": "Google Chrome", "version": full_version },
-            { "brand": "Chromium", "version": full_version }
-        ],
-        "fullVersion": full_version,
-        "platform": os.metadata_platform,
-        "platformVersion": os.platform_version,
-        "architecture": os.architecture,
-        "bitness": os.bitness,
-        "model": "",
-        "mobile": false,
-        "wow64": false
-    });
-
-    GeneratedUserAgent {
-        user_agent: Some(user_agent),
-        platform: Some(os.navigator_platform.to_string()),
-        user_agent_metadata: Some(user_agent_metadata),
-    }
-}
-
-fn parse_chrome_version(version_text: Option<&str>) -> Option<ChromeVersionTuple> {
-    let version_text = version_text?;
-    version_text
-        .split_whitespace()
-        .find_map(|part| parse_version_tuple(part))
-}
-
-fn parse_version_tuple(value: &str) -> Option<ChromeVersionTuple> {
-    let mut parts = value.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let build = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.parse().ok()?;
-    Some((major, minor, build, patch))
-}
-
-struct RuntimeOsProfile {
-    ua_platform: &'static str,
-    navigator_platform: &'static str,
-    metadata_platform: &'static str,
-    platform_version: String,
-    architecture: &'static str,
-    bitness: &'static str,
-}
-
-fn runtime_os_profile() -> RuntimeOsProfile {
-    if cfg!(target_os = "macos") {
-        return RuntimeOsProfile {
-            ua_platform: "Macintosh; Intel Mac OS X 10_15_7",
-            navigator_platform: "MacIntel",
-            metadata_platform: "macOS",
-            platform_version: random_choice(&["13.6.0", "14.4.0", "14.5.0", "14.6.0", "15.0.0"])
-                .to_string(),
-            architecture: if cfg!(target_arch = "aarch64") {
-                "arm"
-            } else {
-                "x86"
-            },
-            bitness: "64",
-        };
-    }
-    if cfg!(target_os = "windows") {
-        return RuntimeOsProfile {
-            ua_platform: "Windows NT 10.0; Win64; x64",
-            navigator_platform: "Win32",
-            metadata_platform: "Windows",
-            platform_version: random_choice(&["10.0.0", "13.0.0", "15.0.0"]).to_string(),
-            architecture: "x86",
-            bitness: "64",
-        };
-    }
-    RuntimeOsProfile {
-        ua_platform: "X11; Linux x86_64",
-        navigator_platform: "Linux x86_64",
-        metadata_platform: "Linux",
-        platform_version: random_choice(&["", "5.15.0", "6.1.0", "6.6.0"]).to_string(),
-        architecture: "x86",
-        bitness: "64",
-    }
-}
-
-fn random_choice<'a>(values: &'a [&str]) -> &'a str {
-    if values.is_empty() {
-        return "";
-    }
-    let index = uuid::Uuid::new_v4().as_u128() as usize % values.len();
-    values[index]
-}
-
 async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint) {
     let overrides = BrowserRuntimeOverrides::new(
         fingerprint.timezone_id,
@@ -1150,17 +1045,16 @@ async fn apply_and_watch_runtime(cdp_port: u16, fingerprint: RuntimeFingerprint)
         fingerprint.user_agent,
         Some(fingerprint.accept_language),
         fingerprint.platform,
-        fingerprint.user_agent_metadata,
+        None,
         fingerprint.masked_fonts,
     );
-    if let Err(err) = timezone_controller::apply_existing(cdp_port, overrides.clone()).await {
+    if let Err(err) = timezone_controller::apply_and_watch(cdp_port, overrides).await {
         tracing::warn!(
             cdp_port,
             error = %err,
             "Failed to apply initial runtime overrides"
         );
     }
-    timezone_controller::spawn(cdp_port, overrides);
 }
 
 fn reap_browser_child_on_exit(mut child: std::process::Child) {
@@ -1246,13 +1140,24 @@ pub fn open_environment_profile_dir(state: State<'_, AppState>, id: String) -> A
 }
 
 pub fn stop_environment_inner(state: &AppState, id: &str) -> AppResult<()> {
-    let session_pid = state.sessions().remove(id).map(|session| session.pid);
-    let record_pid = environment_repo::list_session_records(state.db())?
+    let session = state.sessions().remove(id);
+    let record = environment_repo::list_session_records(state.db())?
         .into_iter()
-        .find(|record| record.environment_id == id)
-        .map(|record| record.pid);
-    let lock_pid = profile_manager::read_lock(state.data_dir(), id)?.map(|lock| lock.pid);
-    let pid = session_pid.or(record_pid).or(lock_pid);
+        .find(|record| record.environment_id == id);
+    let lock = profile_manager::read_lock(state.data_dir(), id)?;
+    let cdp_port = session
+        .as_ref()
+        .map(|session| session.cdp_port)
+        .or_else(|| record.as_ref().map(|record| record.cdp_port))
+        .or_else(|| lock.as_ref().map(|lock| lock.cdp_port));
+    let pid = session
+        .map(|session| session.pid)
+        .or_else(|| record.map(|record| record.pid))
+        .or_else(|| lock.map(|lock| lock.pid));
+
+    if let Some(cdp_port) = cdp_port {
+        timezone_controller::stop_watcher(cdp_port);
+    }
 
     if let Some(pid) = pid {
         if process_manager::pid_alive(pid) {
@@ -1266,26 +1171,39 @@ pub fn stop_environment_inner(state: &AppState, id: &str) -> AppResult<()> {
 }
 
 fn cleanup_environment_runtime_best_effort(state: &AppState, id: &str) {
-    let session_pid = state.sessions().remove(id).map(|session| session.pid);
-    let record_pid = match environment_repo::list_session_records(state.db()) {
+    let session = state.sessions().remove(id);
+    let record = match environment_repo::list_session_records(state.db()) {
         Ok(records) => records
             .into_iter()
-            .find(|record| record.environment_id == id)
-            .map(|record| record.pid),
+            .find(|record| record.environment_id == id),
         Err(err) => {
             tracing::warn!(environment_id = id, error = %err, "Failed to read environment session record");
             None
         }
     };
-    let lock_pid = match profile_manager::read_lock(state.data_dir(), id) {
-        Ok(lock) => lock.map(|lock| lock.pid),
+    let lock = match profile_manager::read_lock(state.data_dir(), id) {
+        Ok(lock) => lock,
         Err(err) => {
             tracing::warn!(environment_id = id, error = %err, "Failed to read environment profile lock");
             None
         }
     };
 
-    if let Some(pid) = session_pid.or(record_pid).or(lock_pid) {
+    let cdp_port = session
+        .as_ref()
+        .map(|session| session.cdp_port)
+        .or_else(|| record.as_ref().map(|record| record.cdp_port))
+        .or_else(|| lock.as_ref().map(|lock| lock.cdp_port));
+    let pid = session
+        .map(|session| session.pid)
+        .or_else(|| record.map(|record| record.pid))
+        .or_else(|| lock.map(|lock| lock.pid));
+
+    if let Some(cdp_port) = cdp_port {
+        timezone_controller::stop_watcher(cdp_port);
+    }
+
+    if let Some(pid) = pid {
         if process_manager::pid_alive(pid) && !process_manager::kill_pid(pid) {
             tracing::warn!(
                 environment_id = id,
@@ -1421,11 +1339,7 @@ mod tests {
     }
 
     #[test]
-    fn chrome_version_parser_and_locale_lookup_are_tolerant() {
-        assert_eq!(
-            parse_chrome_version(Some("Google Chrome 126.0.6478.127")),
-            Some((126, 0, 6478, 127))
-        );
+    fn locale_lookup_is_case_insensitive() {
         assert_eq!(
             accept_language_for_locale("zh-cn"),
             Some("zh-CN,zh;q=0.9,en;q=0.8")
@@ -1433,21 +1347,117 @@ mod tests {
     }
 
     #[test]
-    fn generated_user_agent_preserves_full_chrome_version() {
-        let generated = generate_user_agent(Some("Google Chrome 126.0.6478.127"));
-
-        assert!(generated
-            .user_agent
-            .as_deref()
-            .is_some_and(|value| value.contains("Chrome/126.0.6478.127")));
+    fn automatic_browser_identity_keeps_native_user_agent_and_platform() {
         assert_eq!(
-            generated
-                .user_agent_metadata
-                .as_ref()
-                .and_then(|value| value.get("fullVersion"))
-                .and_then(serde_json::Value::as_str),
-            Some("126.0.6478.127")
+            resolve_browser_identity_overrides(Some("auto".to_string()), Some("auto".to_string())),
+            (None, None)
         );
+        assert_eq!(
+            resolve_browser_identity_overrides(
+                Some("  ".to_string()),
+                Some("MacIntel".to_string())
+            ),
+            (None, None)
+        );
+        assert_eq!(
+            resolve_browser_identity_overrides(
+                Some("OrbitTestAgent/1.0".to_string()),
+                Some("MacIntel".to_string()),
+            ),
+            (
+                Some("OrbitTestAgent/1.0".to_string()),
+                Some("MacIntel".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn camoufox_python_path_prefers_environment_then_settings() {
+        assert_eq!(
+            camoufox_python_override(Some("/env/python"), Some("/settings/python")),
+            Some("/env/python")
+        );
+        assert_eq!(
+            camoufox_python_override(Some("  "), Some("/settings/python")),
+            Some("/settings/python")
+        );
+        assert_eq!(camoufox_python_override(None, Some("  ")), None);
+    }
+
+    #[tokio::test]
+    #[ignore = "launches the local Chrome/Chromium browser"]
+    async fn chrome_runtime_watcher_keeps_timezone_across_navigation_and_reconnect() -> AppResult<()>
+    {
+        let data_dir = std::env::temp_dir().join(format!(
+            "orbit-timezone-watcher-smoke-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AppState::initialize(data_dir.clone())?;
+        let env = environment_repo::save(
+            state.db(),
+            SaveEnvironmentInput {
+                id: Some("env_timezone_watcher_smoke".to_string()),
+                name: "Timezone Watcher Smoke".to_string(),
+                group_id: None,
+                tags: Vec::new(),
+                notes: None,
+                browser_kind: BrowserKind::Chrome,
+                chrome_path_override: None,
+                proxy_config: ProxyConfig::default(),
+                locale: "en-US".to_string(),
+                timezone_id: Some("America/New_York".to_string()),
+                geolocation_latitude: None,
+                geolocation_longitude: None,
+                user_agent: None,
+                platform: None,
+                web_rtc_protection: true,
+                viewport_width: 900,
+                viewport_height: 700,
+                device_scale_factor: 1.0,
+                environment_mode: EnvironmentMode::Standard,
+                seed: None,
+                headless: true,
+                start_url: Some("about:blank".to_string()),
+            },
+        )?;
+
+        let result = async {
+            let runtime = start_environment_inner(&state, env.id.clone()).await?;
+            let cdp_port = runtime
+                .cdp_port
+                .ok_or_else(|| AppError::new("cdp_missing", "CDP port was not assigned"))?;
+
+            {
+                let mut page = cdp_client::CdpPage::connect(cdp_port, None).await?;
+                let timezone = page
+                    .evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone")
+                    .await?;
+                assert_eq!(timezone.as_str(), Some("America/New_York"));
+
+                page.goto(
+                    "data:text/html,<title>Orbit%20Timezone%20Smoke</title>",
+                    Duration::from_secs(5),
+                )
+                .await?;
+                let timezone = page
+                    .evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone")
+                    .await?;
+                assert_eq!(timezone.as_str(), Some("America/New_York"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            let mut reconnected = cdp_client::CdpPage::connect(cdp_port, None).await?;
+            let timezone = reconnected
+                .evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone")
+                .await?;
+            assert_eq!(timezone.as_str(), Some("America/New_York"));
+            Ok(())
+        }
+        .await;
+
+        let _ = stop_environment_inner(&state, &env.id);
+        let _ = std::fs::remove_dir_all(data_dir);
+        result
     }
 
     #[test]

@@ -2,11 +2,16 @@ use crate::browser::cdp_client::{self, TargetInfo};
 use crate::errors::{AppError, AppResult};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::collections::HashSet;
-use std::time::Duration;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+use tokio::sync::oneshot;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 type CdpSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+static ACTIVE_WATCHERS: OnceLock<Mutex<HashMap<u16, u64>>> = OnceLock::new();
+static NEXT_WATCHER_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GeolocationOverride {
@@ -63,13 +68,22 @@ impl BrowserRuntimeOverrides {
     }
 }
 
-pub fn spawn(port: u16, overrides: BrowserRuntimeOverrides) {
+pub async fn apply_and_watch(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
     if overrides.is_empty() {
-        return;
+        return Ok(());
     }
 
+    cdp_client::wait_for_version(port, Duration::from_secs(5)).await?;
+    let Some(watcher_token) = claim_watcher_port(port) else {
+        return Ok(());
+    };
+    let (ready_tx, ready_rx) = oneshot::channel();
     tokio::spawn(async move {
-        if let Err(err) = watch_targets(port, overrides.clone()).await {
+        let _watcher_guard = ActiveWatcherGuard {
+            port,
+            token: watcher_token,
+        };
+        if let Err(err) = watch_targets(port, watcher_token, overrides, Some(ready_tx)).await {
             tracing::warn!(
                 cdp_port = port,
                 error = %err,
@@ -77,14 +91,20 @@ pub fn spawn(port: u16, overrides: BrowserRuntimeOverrides) {
             );
         }
     });
+    ready_rx.await.map_err(|_| {
+        AppError::new(
+            "cdp_connect_failed",
+            "Runtime override watcher stopped before initial setup",
+        )
+        .retryable(true)
+    })?
 }
 
-pub async fn apply_existing(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
-    if overrides.is_empty() {
-        return Ok(());
-    }
-    cdp_client::wait_for_version(port, Duration::from_secs(5)).await?;
-    apply_to_existing_targets(port, &overrides, &mut HashSet::new()).await
+pub fn stop_watcher(port: u16) {
+    active_watchers()
+        .lock()
+        .expect("active watcher registry should not be poisoned")
+        .remove(&port);
 }
 
 pub async fn grant_geolocation_permission(port: u16, target_url: &str) -> AppResult<()> {
@@ -103,6 +123,28 @@ struct TargetSession {
 struct BrowserSession {
     socket: CdpSocket,
     next_id: u64,
+}
+
+struct WatchedTargetSession {
+    // Emulation 覆盖与 CDP 会话绑定，必须持有连接直到目标关闭。
+    _session: TargetSession,
+    permission_origin: Option<String>,
+}
+
+struct ActiveWatcherGuard {
+    port: u16,
+    token: u64,
+}
+
+impl Drop for ActiveWatcherGuard {
+    fn drop(&mut self) {
+        let mut active = active_watchers()
+            .lock()
+            .expect("active watcher registry should not be poisoned");
+        if active.get(&self.port) == Some(&self.token) {
+            active.remove(&self.port);
+        }
+    }
 }
 
 impl TargetSession {
@@ -165,7 +207,6 @@ impl TargetSession {
             params["userAgentMetadata"] = metadata.clone();
         }
 
-        self.call("Network.enable", json!({})).await?;
         self.call("Network.setUserAgentOverride", params)
             .await
             .map(|_| ())
@@ -300,12 +341,59 @@ impl BrowserSession {
     }
 }
 
-async fn watch_targets(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
-    let mut applied_target_ids = HashSet::new();
+async fn watch_targets(
+    port: u16,
+    watcher_token: u64,
+    overrides: BrowserRuntimeOverrides,
+    initial_ready: Option<oneshot::Sender<AppResult<()>>>,
+) -> AppResult<()> {
+    let mut target_sessions = HashMap::new();
     let mut consecutive_errors = 0;
+    let initial_deadline = Instant::now() + Duration::from_secs(5);
+    let mut initial_ready = initial_ready;
+    loop {
+        if !watcher_is_current(port, watcher_token) {
+            let error = AppError::new(
+                "cdp_connect_failed",
+                "Runtime override watcher was stopped during initial setup",
+            )
+            .retryable(true);
+            if let Some(initial_ready) = initial_ready.take() {
+                let _ = initial_ready.send(Err(error.clone()));
+            }
+            return Err(error);
+        }
+        let initial_result = refresh_target_sessions(port, &overrides, &mut target_sessions).await;
+        match initial_result {
+            Ok(()) => {
+                if let Some(initial_ready) = initial_ready.take() {
+                    let _ = initial_ready.send(Ok(()));
+                }
+                break;
+            }
+            Err(err) if Instant::now() >= initial_deadline => {
+                if let Some(initial_ready) = initial_ready.take() {
+                    let _ = initial_ready.send(Err(err.clone()));
+                }
+                return Err(err);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    cdp_port = port,
+                    error = %err,
+                    "Waiting to apply initial runtime overrides"
+                );
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
 
     loop {
-        match apply_to_existing_targets(port, &overrides, &mut applied_target_ids).await {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        if !watcher_is_current(port, watcher_token) {
+            return Ok(());
+        }
+        match refresh_target_sessions(port, &overrides, &mut target_sessions).await {
             Ok(()) => {
                 consecutive_errors = 0;
             }
@@ -321,99 +409,161 @@ async fn watch_targets(port: u16, overrides: BrowserRuntimeOverrides) -> AppResu
                 );
             }
         }
-        tokio::time::sleep(Duration::from_millis(300)).await;
     }
+}
+
+async fn refresh_target_sessions(
+    port: u16,
+    overrides: &BrowserRuntimeOverrides,
+    target_sessions: &mut HashMap<String, WatchedTargetSession>,
+) -> AppResult<()> {
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        apply_to_existing_targets(port, overrides, target_sessions),
+    )
+    .await
+    .map_err(|_| {
+        AppError::new(
+            "cdp_timeout",
+            "Timed out applying browser runtime overrides",
+        )
+        .retryable(true)
+    })?
 }
 
 async fn apply_to_existing_targets(
     port: u16,
     overrides: &BrowserRuntimeOverrides,
-    applied_target_ids: &mut HashSet<String>,
+    target_sessions: &mut HashMap<String, WatchedTargetSession>,
 ) -> AppResult<()> {
     let targets = cdp_client::list_targets(port).await?;
-    let pending_targets = targets
+    retain_runtime_target_sessions(target_sessions, &targets);
+    let supported_target_count = targets
         .iter()
         .filter(|target| supports_timezone_override(target))
-        .filter(|target| {
-            overrides.geolocation.is_some()
-                || !applied_target_ids.contains(&target_apply_key(target))
-        })
-        .collect::<Vec<_>>();
-    let mut browser_session = if overrides.geolocation.is_some() && !pending_targets.is_empty() {
-        Some(BrowserSession::connect(port).await?)
-    } else {
-        None
-    };
-    for target in pending_targets {
+        .count();
+    let pending_target_ids = pending_runtime_targets(&targets, target_sessions)
+        .into_iter()
+        .map(|target| target.id.as_str())
+        .collect::<HashSet<_>>();
+
+    let mut browser_session = None;
+    for target in targets
+        .iter()
+        .filter(|target| supports_timezone_override(target))
+    {
+        let current_origin = target_origin(&target.url);
+        if !pending_target_ids.contains(target.id.as_str()) {
+            let Some(watched) = target_sessions.get_mut(&target.id) else {
+                continue;
+            };
+            if overrides.geolocation.is_some() && watched.permission_origin != current_origin {
+                if let Some(origin) = current_origin {
+                    match grant_geolocation_permission_with_session(
+                        port,
+                        &target.url,
+                        &mut browser_session,
+                    )
+                    .await
+                    {
+                        Ok(()) => watched.permission_origin = Some(origin),
+                        Err(err) => {
+                            tracing::warn!(
+                                target_id = target.id,
+                                target_url = target.url,
+                                error = %err,
+                                "Failed to update geolocation permission"
+                            );
+                        }
+                    }
+                } else {
+                    watched.permission_origin = None;
+                }
+            }
+            continue;
+        }
+
         match TargetSession::connect(target).await {
             Ok(mut session) => {
-                let apply_key = target_apply_key(target);
-                let first_apply = !applied_target_ids.contains(&apply_key);
-                if first_apply {
-                    if let Some(source) = locale_mask_script(overrides)? {
-                        if let Err(err) = session.install_runtime_script(&source).await {
-                            tracing::warn!(
-                                target_id = target.id,
-                                target_url = target.url,
-                                error = %err,
-                                "Failed to install locale mask script"
-                            );
-                        }
-                    }
-                    if let Some(source) = font_mask_script(&overrides.masked_fonts)? {
-                        if let Err(err) = session.install_runtime_script(&source).await {
-                            tracing::warn!(
-                                target_id = target.id,
-                                target_url = target.url,
-                                error = %err,
-                                "Failed to install font mask script"
-                            );
-                        }
-                    }
-                    if let Err(err) = session.set_user_agent(overrides).await {
+                let mut keep_session = true;
+                if let Some(source) = locale_mask_script(overrides)? {
+                    if let Err(err) = session.install_runtime_script(&source).await {
+                        keep_session = false;
                         tracing::warn!(
                             target_id = target.id,
                             target_url = target.url,
                             error = %err,
-                            "Failed to apply user-agent override"
+                            "Failed to install locale mask script"
                         );
                     }
-                    if let Some(locale) = overrides.locale.as_deref() {
-                        if let Err(err) = session.set_locale(locale).await {
-                            tracing::warn!(
-                                target_id = target.id,
-                                target_url = target.url,
-                                error = %err,
-                                "Failed to apply locale override"
-                            );
-                        }
-                    }
-                    if let Some(timezone_id) = overrides.timezone_id.as_deref() {
-                        if let Err(err) = session.set_timezone(timezone_id).await {
-                            tracing::warn!(
-                                target_id = target.id,
-                                target_url = target.url,
-                                error = %err,
-                                "Failed to apply timezone override"
-                            );
-                        }
+                }
+                if let Some(source) = font_mask_script(&overrides.masked_fonts)? {
+                    if let Err(err) = session.install_runtime_script(&source).await {
+                        keep_session = false;
+                        tracing::warn!(
+                            target_id = target.id,
+                            target_url = target.url,
+                            error = %err,
+                            "Failed to install font mask script"
+                        );
                     }
                 }
+                if let Err(err) = session.set_user_agent(overrides).await {
+                    keep_session = false;
+                    tracing::warn!(
+                        target_id = target.id,
+                        target_url = target.url,
+                        error = %err,
+                        "Failed to apply user-agent override"
+                    );
+                }
+                if let Some(locale) = overrides.locale.as_deref() {
+                    if let Err(err) = session.set_locale(locale).await {
+                        keep_session = false;
+                        tracing::warn!(
+                            target_id = target.id,
+                            target_url = target.url,
+                            error = %err,
+                            "Failed to apply locale override"
+                        );
+                    }
+                }
+                if let Some(timezone_id) = overrides.timezone_id.as_deref() {
+                    if let Err(err) = session.set_timezone(timezone_id).await {
+                        keep_session = false;
+                        tracing::warn!(
+                            target_id = target.id,
+                            target_url = target.url,
+                            error = %err,
+                            "Failed to apply timezone override"
+                        );
+                    }
+                }
+
+                let mut permission_origin = None;
                 if let Some(geolocation) = overrides.geolocation.as_ref() {
-                    if let Some(browser_session) = browser_session.as_mut() {
-                        if let Err(err) = browser_session
-                            .grant_geolocation_permission(&target.url)
-                            .await
+                    if let Some(origin) = current_origin {
+                        match grant_geolocation_permission_with_session(
+                            port,
+                            &target.url,
+                            &mut browser_session,
+                        )
+                        .await
                         {
-                            tracing::warn!(
-                                target_id = target.id,
-                                target_url = target.url,
-                                error = %err,
-                                "Failed to grant geolocation permission"
-                            );
+                            Ok(()) => permission_origin = Some(origin),
+                            Err(err) => {
+                                keep_session = false;
+                                tracing::warn!(
+                                    target_id = target.id,
+                                    target_url = target.url,
+                                    error = %err,
+                                    "Failed to grant geolocation permission"
+                                );
+                            }
                         }
                     }
                     if let Err(err) = session.set_geolocation(geolocation).await {
+                        keep_session = false;
                         tracing::warn!(
                             target_id = target.id,
                             target_url = target.url,
@@ -422,7 +572,16 @@ async fn apply_to_existing_targets(
                         );
                     }
                 }
-                applied_target_ids.insert(apply_key);
+                if !keep_session {
+                    continue;
+                }
+                target_sessions.insert(
+                    target.id.clone(),
+                    WatchedTargetSession {
+                        _session: session,
+                        permission_origin,
+                    },
+                );
             }
             Err(err) => {
                 tracing::warn!(
@@ -435,7 +594,76 @@ async fn apply_to_existing_targets(
         }
     }
 
+    if supported_target_count == 0 || target_sessions.is_empty() {
+        return Err(AppError::new(
+            "cdp_connect_failed",
+            "No page target accepted the browser runtime overrides",
+        )
+        .retryable(true));
+    }
     Ok(())
+}
+
+fn active_watchers() -> &'static Mutex<HashMap<u16, u64>> {
+    ACTIVE_WATCHERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn claim_watcher_port(port: u16) -> Option<u64> {
+    let mut active = active_watchers()
+        .lock()
+        .expect("active watcher registry should not be poisoned");
+    if active.contains_key(&port) {
+        return None;
+    }
+    let token = NEXT_WATCHER_TOKEN.fetch_add(1, Ordering::Relaxed);
+    active.insert(port, token);
+    Some(token)
+}
+
+fn watcher_is_current(port: u16, token: u64) -> bool {
+    active_watchers()
+        .lock()
+        .expect("active watcher registry should not be poisoned")
+        .get(&port)
+        == Some(&token)
+}
+
+async fn grant_geolocation_permission_with_session(
+    port: u16,
+    target_url: &str,
+    browser_session: &mut Option<BrowserSession>,
+) -> AppResult<()> {
+    if browser_session.is_none() {
+        *browser_session = Some(BrowserSession::connect(port).await?);
+    }
+    browser_session
+        .as_mut()
+        .expect("browser session must be initialized")
+        .grant_geolocation_permission(target_url)
+        .await
+}
+
+fn pending_runtime_targets<'a, T>(
+    targets: &'a [TargetInfo],
+    target_sessions: &HashMap<String, T>,
+) -> Vec<&'a TargetInfo> {
+    targets
+        .iter()
+        .filter(|target| supports_timezone_override(target))
+        .filter(|target| !target_sessions.contains_key(&target.id))
+        .collect()
+}
+
+fn retain_runtime_target_sessions<T>(
+    target_sessions: &mut HashMap<String, T>,
+    targets: &[TargetInfo],
+) {
+    let active_target_ids = targets
+        .iter()
+        .filter(|target| supports_timezone_override(target))
+        .map(|target| target.id.as_str())
+        .collect::<HashSet<_>>();
+    target_sessions.retain(|target_id, _| active_target_ids.contains(target_id.as_str()));
 }
 
 fn normalize_timezone_id(timezone_id: Option<String>) -> Option<String> {
@@ -684,10 +912,6 @@ fn supports_timezone_override(target: &TargetInfo) -> bool {
     matches!(target.kind.as_str(), "page" | "iframe")
 }
 
-fn target_apply_key(target: &TargetInfo) -> String {
-    format!("{}:{}", target.id, target.url)
-}
-
 fn target_origin(target_url: &str) -> Option<String> {
     let url = reqwest::Url::parse(target_url).ok()?;
     match url.scheme() {
@@ -706,6 +930,16 @@ fn target_origin(target_url: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn target(id: &str, kind: &str, url: &str) -> TargetInfo {
+        TargetInfo {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            title: String::new(),
+            url: url.to_string(),
+            web_socket_debugger_url: None,
+        }
+    }
+
     #[test]
     fn blank_timezone_is_ignored() {
         assert_eq!(normalize_timezone_id(None), None);
@@ -722,20 +956,78 @@ mod tests {
 
     #[test]
     fn only_page_like_targets_receive_timezone_override() {
-        let page = TargetInfo {
-            id: "page-1".to_string(),
-            kind: "page".to_string(),
-            title: String::new(),
-            url: String::new(),
-            web_socket_debugger_url: None,
-        };
-        let service_worker = TargetInfo {
-            kind: "service_worker".to_string(),
-            ..page.clone()
-        };
+        let page = target("page-1", "page", "about:blank");
+        let service_worker = target(
+            "worker-1",
+            "service_worker",
+            "https://example.com/worker.js",
+        );
 
         assert!(supports_timezone_override(&page));
         assert!(!supports_timezone_override(&service_worker));
+    }
+
+    #[test]
+    fn pending_targets_select_new_page_and_iframe_sessions() {
+        let targets = vec![
+            target("page-existing", "page", "https://example.com"),
+            target("page-new", "page", "https://example.org"),
+            target("frame-new", "iframe", "https://example.net/frame"),
+            target(
+                "worker-new",
+                "service_worker",
+                "https://example.net/worker.js",
+            ),
+        ];
+        let target_sessions = HashMap::from([("page-existing".to_string(), ())]);
+
+        let pending_ids = pending_runtime_targets(&targets, &target_sessions)
+            .into_iter()
+            .map(|target| target.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(pending_ids, vec!["page-new", "frame-new"]);
+    }
+
+    #[test]
+    fn target_session_cleanup_removes_closed_and_unsupported_targets() {
+        let targets = vec![
+            target("page-active", "page", "https://example.com"),
+            target(
+                "worker-active",
+                "service_worker",
+                "https://example.com/worker.js",
+            ),
+        ];
+        let mut target_sessions = HashMap::from([
+            ("page-active".to_string(), 1),
+            ("page-closed".to_string(), 2),
+            ("worker-active".to_string(), 3),
+        ]);
+
+        retain_runtime_target_sessions(&mut target_sessions, &targets);
+
+        assert_eq!(
+            target_sessions,
+            HashMap::from([("page-active".to_string(), 1)])
+        );
+    }
+
+    #[test]
+    fn watcher_registry_prevents_duplicate_port_watchers() {
+        let port = 65_001;
+        let first_token = claim_watcher_port(port).expect("first watcher should register");
+        assert_eq!(claim_watcher_port(port), None);
+        assert!(watcher_is_current(port, first_token));
+
+        stop_watcher(port);
+        assert!(!watcher_is_current(port, first_token));
+        let second_token = claim_watcher_port(port).expect("stopped port should register again");
+        assert_ne!(first_token, second_token);
+        drop(ActiveWatcherGuard {
+            port,
+            token: second_token,
+        });
     }
 
     #[test]

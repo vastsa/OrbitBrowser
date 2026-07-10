@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import {
   Activity,
   Bot,
   CheckCircle2,
   FolderOpen,
   Languages,
+  Loader2,
   Search,
   Trash2,
 } from "lucide-react";
@@ -15,13 +17,14 @@ import { Button } from "@/components/Button";
 import { SelectField, TextField } from "@/components/FormField";
 import { languageOptions, useI18n } from "@/i18n";
 import { errorMessage, formatBytes } from "@/lib/format";
-import { browserApi } from "@/lib/tauri";
+import { browserApi, isTauriRuntime } from "@/lib/tauri";
 import { useUiStore } from "@/stores/uiStore";
 import type { AppLanguage } from "@/stores/uiStore";
-import type { Settings } from "@/types/domain";
+import type { CamoufoxInstallProgress, Settings } from "@/types/domain";
 
 const defaultSettings: Settings = {
   chrome_path: "",
+  camoufox_python_path: "",
   default_concurrency: 2,
   default_locale: "zh-CN",
   default_timezone_id: "auto",
@@ -38,6 +41,7 @@ const AUTO_SAVE_DELAY_MS = 600;
 function settingsSignature(value: Settings) {
   return JSON.stringify({
     chrome_path: value.chrome_path ?? "",
+    camoufox_python_path: value.camoufox_python_path ?? "",
     default_concurrency: value.default_concurrency,
     default_locale: value.default_locale,
     default_timezone_id: value.default_timezone_id,
@@ -56,7 +60,15 @@ export function SettingsPage() {
   const text = copy.settings;
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [loaded, setLoaded] = useState(false);
+  const [camoufoxInstallProgress, setCamoufoxInstallProgress] =
+    useState<CamoufoxInstallProgress | null>(null);
+  const [camoufoxProgressListenerReady, setCamoufoxProgressListenerReady] =
+    useState(() => !isTauriRuntime());
+  const camoufoxInstallOperationRef = useRef<string | null>(null);
+  const validatedCamoufoxPathRef = useRef<string | null>(null);
+  const hydratedSettingsRef = useRef(false);
   const lastSavedSignatureRef = useRef(settingsSignature(defaultSettings));
+  const pendingSaveSignatureRef = useRef<string | null>(null);
   const currentSettingsRef = useRef<Settings>(defaultSettings);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -66,20 +78,31 @@ export function SettingsPage() {
   });
 
   const saveMutation = useMutation({
+    scope: { id: "settings-save" },
     mutationFn: browserApi.saveSettings,
     onSuccess: (saved, submitted) => {
       const nextSettings = { ...defaultSettings, ...saved };
       const submittedSignature = settingsSignature(submitted);
       lastSavedSignatureRef.current = settingsSignature(nextSettings);
+      if (pendingSaveSignatureRef.current === submittedSignature) {
+        pendingSaveSignatureRef.current = null;
+      }
 
       // 保存请求返回期间，用户可能继续输入；只同步当前这次提交对应的响应。
       if (
         settingsSignature(currentSettingsRef.current) === submittedSignature
       ) {
+        currentSettingsRef.current = nextSettings;
         setSettings(nextSettings);
       }
 
-      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      queryClient.setQueryData(["settings"], nextSettings);
+    },
+    onError: (_error, submitted) => {
+      const submittedSignature = settingsSignature(submitted);
+      if (pendingSaveSignatureRef.current === submittedSignature) {
+        pendingSaveSignatureRef.current = null;
+      }
     },
   });
 
@@ -87,9 +110,7 @@ export function SettingsPage() {
     mutationFn: browserApi.detectChrome,
     onSuccess: (result) => {
       if (result.path) {
-        const nextSettings = { ...settings, chrome_path: result.path };
-        setSettings(nextSettings);
-        saveImmediately(nextSettings);
+        applySettingsAndSaveImmediately({ chrome_path: result.path });
       }
     },
   });
@@ -100,10 +121,41 @@ export function SettingsPage() {
 
   const detectCamoufoxMutation = useMutation({
     mutationFn: browserApi.detectCamoufox,
+    onSuccess: persistCamoufoxPath,
+  });
+
+  const validateCamoufoxMutation = useMutation({
+    mutationFn: browserApi.validateCamoufoxPythonPath,
   });
 
   const installCamoufoxMutation = useMutation({
     mutationFn: browserApi.installCamoufox,
+    onSuccess: (result, operationId) => {
+      persistCamoufoxPath(result);
+      if (camoufoxInstallOperationRef.current !== operationId) {
+        return;
+      }
+      setCamoufoxInstallProgress({
+        operation_id: operationId,
+        stage: null,
+        status: "completed",
+        percent: 100,
+      });
+      camoufoxInstallOperationRef.current = null;
+    },
+    onError: (error, operationId) => {
+      if (camoufoxInstallOperationRef.current !== operationId) {
+        return;
+      }
+      setCamoufoxInstallProgress((current) => ({
+        operation_id: operationId,
+        stage: current?.stage ?? null,
+        status: "failed",
+        percent: current?.percent ?? 0,
+        message: errorMessage(error),
+      }));
+      camoufoxInstallOperationRef.current = null;
+    },
   });
 
   const openDataDirMutation = useMutation({
@@ -119,9 +171,47 @@ export function SettingsPage() {
   }, [settings]);
 
   useEffect(() => {
-    if (settingsQuery.data) {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<CamoufoxInstallProgress>(
+      "camoufox_install_progress",
+      (event) => {
+        if (
+          event.payload.operation_id !== camoufoxInstallOperationRef.current
+        ) {
+          return;
+        }
+        setCamoufoxInstallProgress(event.payload);
+      },
+    )
+      .then((listener) => {
+        if (disposed) {
+          listener();
+          return;
+        }
+        unlisten = listener;
+        setCamoufoxProgressListenerReady(true);
+      })
+      .catch(() => {
+        // 浏览器预览模式没有 Tauri 事件运行时，仍保留基础 loading 状态。
+        if (!disposed) {
+          setCamoufoxProgressListenerReady(true);
+        }
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (settingsQuery.data && !hydratedSettingsRef.current) {
       const nextSettings = { ...defaultSettings, ...settingsQuery.data };
+      hydratedSettingsRef.current = true;
       lastSavedSignatureRef.current = settingsSignature(nextSettings);
+      currentSettingsRef.current = nextSettings;
       setSettings(nextSettings);
       setLoaded(true);
     }
@@ -131,9 +221,25 @@ export function SettingsPage() {
     if (!loaded) {
       return;
     }
+    const path = settings.camoufox_python_path?.trim();
+    if (!path || validatedCamoufoxPathRef.current === path) {
+      return;
+    }
+
+    validatedCamoufoxPathRef.current = path;
+    validateCamoufoxMutation.mutate(path);
+  }, [loaded, settings.camoufox_python_path]);
+
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
 
     const signature = settingsSignature(settings);
-    if (signature === lastSavedSignatureRef.current) {
+    if (
+      signature === lastSavedSignatureRef.current ||
+      signature === pendingSaveSignatureRef.current
+    ) {
       return;
     }
 
@@ -142,6 +248,7 @@ export function SettingsPage() {
     }
 
     saveTimerRef.current = setTimeout(() => {
+      pendingSaveSignatureRef.current = settingsSignature(settings);
       saveMutation.mutate(settings);
     }, AUTO_SAVE_DELAY_MS);
 
@@ -157,13 +264,80 @@ export function SettingsPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    pendingSaveSignatureRef.current = settingsSignature(nextSettings);
     saveMutation.mutate(nextSettings);
   };
+
+  const applySettingsAndSaveImmediately = (updates: Partial<Settings>) => {
+    const nextSettings = {
+      ...currentSettingsRef.current,
+      ...updates,
+    };
+    currentSettingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    saveImmediately(nextSettings);
+  };
+
+  function persistCamoufoxPath(result: {
+    found: boolean;
+    python_path?: string | null;
+  }) {
+    const pythonPath = result.found ? result.python_path?.trim() : undefined;
+    if (!pythonPath) {
+      return;
+    }
+
+    validatedCamoufoxPathRef.current = pythonPath;
+    validateCamoufoxMutation.reset();
+    applySettingsAndSaveImmediately({ camoufox_python_path: pythonPath });
+  }
 
   const update = <TKey extends keyof Settings>(
     key: TKey,
     value: Settings[TKey],
   ) => setSettings((current) => ({ ...current, [key]: value }));
+
+  const detectCamoufox = () => {
+    setCamoufoxInstallProgress(null);
+    installCamoufoxMutation.reset();
+    detectCamoufoxMutation.mutate();
+  };
+
+  const installCamoufox = () => {
+    const operationId = crypto.randomUUID();
+    camoufoxInstallOperationRef.current = operationId;
+    detectCamoufoxMutation.reset();
+    installCamoufoxMutation.reset();
+    setCamoufoxInstallProgress({
+      operation_id: operationId,
+      stage: "locating_python",
+      status: "running",
+      percent: 0,
+    });
+    installCamoufoxMutation.mutate(operationId);
+  };
+
+  const camoufoxBusy =
+    !loaded ||
+    detectCamoufoxMutation.isPending ||
+    validateCamoufoxMutation.isPending ||
+    installCamoufoxMutation.isPending;
+  const camoufoxResult =
+    installCamoufoxMutation.data ??
+    detectCamoufoxMutation.data ??
+    validateCamoufoxMutation.data;
+  const savedCamoufoxPathInvalid =
+    Boolean(settings.camoufox_python_path?.trim()) &&
+    Boolean(validateCamoufoxMutation.error) &&
+    !detectCamoufoxMutation.data &&
+    !installCamoufoxMutation.data;
+  const camoufoxProgressPercent = Math.min(
+    100,
+    Math.max(0, camoufoxInstallProgress?.percent ?? 0),
+  );
+  const camoufoxProgressLabel = camoufoxInstallProgress?.stage
+    ? text.camoufoxInstallStages[camoufoxInstallProgress.stage]
+    : text.installingCamoufox;
 
   const saveStatus = saveMutation.isPending
     ? text.autoSaving
@@ -239,54 +413,105 @@ export function SettingsPage() {
                 {text.camoufoxHint}
               </p>
             </div>
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
               <TextField
                 label={text.camoufoxPythonPath}
                 readOnly
-                value={
-                  (installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
-                    ?.python_path ?? ""
-                }
+                value={settings.camoufox_python_path ?? ""}
               />
-              <div className="flex items-end">
+              <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:items-end">
                 <Button
-                  disabled={detectCamoufoxMutation.isPending}
+                  className="w-full whitespace-nowrap lg:w-44"
+                  disabled={camoufoxBusy}
                   icon={<Search className="h-4 w-4" />}
-                  onClick={() => detectCamoufoxMutation.mutate()}
+                  onClick={detectCamoufox}
                 >
                   {text.detectCamoufox}
                 </Button>
-              </div>
-              <div className="flex items-end">
                 <Button
-                  disabled={installCamoufoxMutation.isPending}
-                  icon={<CheckCircle2 className="h-4 w-4" />}
-                  onClick={() => installCamoufoxMutation.mutate()}
+                  className="w-full whitespace-nowrap lg:w-60"
+                  disabled={camoufoxBusy || !camoufoxProgressListenerReady}
+                  icon={
+                    installCamoufoxMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4" />
+                    )
+                  }
+                  onClick={installCamoufox}
                 >
-                  {text.installCamoufox}
+                  {installCamoufoxMutation.isPending
+                    ? text.installingCamoufox
+                    : text.installCamoufox}
                 </Button>
               </div>
             </div>
 
-            {detectCamoufoxMutation.data || installCamoufoxMutation.data ? (
+            {installCamoufoxMutation.isPending && camoufoxInstallProgress ? (
               <div
-                className={`rounded-lg border px-3 py-2 text-sm ${
-                  (installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
-                    ?.found
+                aria-atomic="true"
+                aria-live="polite"
+                className="min-w-0 rounded-lg border border-line bg-ink-50/60 px-3 py-2.5"
+              >
+                <div className="flex items-start gap-2 text-sm text-ink-700">
+                  <Activity className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                  <span className="min-w-0 flex-1 break-words font-medium leading-5">
+                    {camoufoxProgressLabel}
+                  </span>
+                  <span className="mono-tabular w-11 shrink-0 text-right leading-5 text-ink-500">
+                    {camoufoxProgressPercent}%
+                  </span>
+                </div>
+                <div
+                  aria-label={camoufoxProgressLabel}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={camoufoxProgressPercent}
+                  className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-200"
+                  role="progressbar"
+                >
+                  <div
+                    className="h-full rounded-full bg-brand-600 transition-[width] duration-300 ease-out"
+                    style={{ width: `${camoufoxProgressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {!installCamoufoxMutation.isPending &&
+            validateCamoufoxMutation.isPending ? (
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-ink-50/60 px-3 py-2 text-sm text-ink-600">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-600" />
+                <span className="min-w-0 break-words">
+                  {text.validatingCamoufoxPath}
+                </span>
+              </div>
+            ) : null}
+
+            {!installCamoufoxMutation.isPending &&
+            !validateCamoufoxMutation.isPending &&
+            savedCamoufoxPathInvalid ? (
+              <div className="min-w-0 break-words rounded-lg border border-warn/20 bg-amber-50 px-3 py-2 text-sm text-warn">
+                {text.camoufoxSavedPathInvalid}
+              </div>
+            ) : null}
+
+            {!installCamoufoxMutation.isPending &&
+            !validateCamoufoxMutation.isPending &&
+            !savedCamoufoxPathInvalid &&
+            camoufoxResult ? (
+              <div
+                className={`min-w-0 break-words rounded-lg border px-3 py-2 text-sm ${
+                  camoufoxResult.found
                     ? "border-ok/20 bg-green-50 text-ok"
                     : "border-warn/20 bg-amber-50 text-warn"
                 }`}
               >
-                {(installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
-                  ?.found
+                {camoufoxResult.found
                   ? format(text.detected, {
-                      version:
-                        (installCamoufoxMutation.data ??
-                          detectCamoufoxMutation.data)?.version ?? "Camoufox",
+                      version: camoufoxResult.version ?? "Camoufox",
                     })
-                  : ((installCamoufoxMutation.data ??
-                      detectCamoufoxMutation.data)?.error ??
-                    text.camoufoxNotDetected)}
+                  : (camoufoxResult.error ?? text.camoufoxNotDetected)}
               </div>
             ) : null}
           </section>
@@ -301,7 +526,7 @@ export function SettingsPage() {
               />
               <div className="flex items-end">
                 <Button
-                  disabled={detectMutation.isPending}
+                  disabled={!loaded || detectMutation.isPending}
                   icon={<Search className="h-4 w-4" />}
                   onClick={() => detectMutation.mutate()}
                 >
@@ -311,6 +536,7 @@ export function SettingsPage() {
               <div className="flex items-end">
                 <Button
                   disabled={
+                    !loaded ||
                     validateChromeMutation.isPending ||
                     !settings.chrome_path?.trim()
                   }

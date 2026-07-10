@@ -3,6 +3,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   chrome_path TEXT,
+  camoufox_python_path TEXT,
   default_concurrency INTEGER NOT NULL DEFAULT 2,
   default_locale TEXT NOT NULL DEFAULT 'zh-CN',
   default_timezone_id TEXT NOT NULL DEFAULT 'auto',

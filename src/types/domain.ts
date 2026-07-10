@@ -43,6 +43,23 @@ export interface CamoufoxDetectionResult {
   error?: string | null;
 }
 
+export type CamoufoxInstallStage =
+  | "locating_python"
+  | "preparing_environment"
+  | "updating_installer"
+  | "installing_packages"
+  | "fetching_browser"
+  | "downloading_browser_fallback"
+  | "verifying";
+
+export interface CamoufoxInstallProgress {
+  operation_id: string;
+  stage?: CamoufoxInstallStage | null;
+  status: "running" | "completed" | "failed";
+  percent: number;
+  message?: string | null;
+}
+
 export interface ProxyConfig {
   kind: ProxyKind;
   host?: string;
@@ -213,6 +230,7 @@ export interface RunFilters {
 
 export interface Settings {
   chrome_path?: string | null;
+  camoufox_python_path?: string | null;
   default_concurrency: number;
   default_locale: string;
   default_timezone_id: string;

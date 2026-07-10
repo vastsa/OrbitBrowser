@@ -6,6 +6,7 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { queryClient } from "@/app/queryClient";
 import { Layout } from "@/components/Layout";
+import { handleGlobalContextMenu } from "@/lib/contextMenu";
 import { isTauriRuntime } from "@/lib/tauri";
 import { AgentPage } from "@/pages/AgentPage";
 import { DiagnosticsPage } from "@/pages/DiagnosticsPage";
@@ -15,6 +16,17 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TaskDetailPage, TasksPage } from "@/pages/TasksPage";
 
 export function App() {
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+    document.addEventListener("contextmenu", handleGlobalContextMenu, true);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleGlobalContextMenu, true);
+    };
+  }, []);
+
   useEffect(() => {
     const splash = document.getElementById("startup-splash");
     if (!splash) {

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub struct Settings {
     pub chrome_path: Option<String>,
+    pub camoufox_python_path: Option<String>,
     pub default_concurrency: i64,
     pub default_locale: String,
     pub default_timezone_id: String,
@@ -21,6 +22,7 @@ pub struct Settings {
 #[serde(rename_all = "snake_case")]
 pub struct SaveSettingsInput {
     pub chrome_path: Option<String>,
+    pub camoufox_python_path: Option<String>,
     pub default_concurrency: i64,
     pub default_locale: String,
     pub default_timezone_id: String,
