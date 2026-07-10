@@ -10,6 +10,10 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import appLogo from "@/assets/app-logo.png";
 import appLogoDark from "@/assets/app-logo-dark.png";
+import {
+  isWindowsTauriRuntime,
+  WindowControls,
+} from "@/components/WindowControls";
 import { useI18n } from "@/i18n";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -17,6 +21,7 @@ export function Layout() {
   const location = useLocation();
   const { copy, language } = useI18n();
   const headerActions = useUiStore((state) => state.headerActions);
+  const isWindows = isWindowsTauriRuntime();
   const navigation = useMemo(
     () => [
       { to: "/environments", label: copy.layout.nav.environments, icon: SquareStack },
@@ -52,10 +57,19 @@ export function Layout() {
       "platform-macos",
       navigator.userAgent.includes("Mac"),
     );
-  }, [language]);
+    document.documentElement.classList.toggle("platform-windows", isWindows);
+
+    return () => {
+      document.documentElement.classList.remove(
+        "platform-macos",
+        "platform-windows",
+      );
+    };
+  }, [isWindows, language]);
 
   return (
     <div className="app-shell h-screen min-w-[1280px] overflow-hidden text-ink-900">
+      {isWindows ? <WindowControls labels={copy.layout.windowControls} /> : null}
       <aside
         className="app-sidebar fixed inset-y-0 left-0 z-20 flex w-56 flex-col overflow-hidden border-r"
         data-tauri-drag-region="deep"
@@ -119,7 +133,9 @@ export function Layout() {
       </aside>
       <main className="flex h-screen min-h-0 flex-col pl-56">
         <header
-          className="app-header z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b px-6 transition-colors duration-200 ease-out"
+          className={`app-header z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b px-6 transition-colors duration-200 ease-out ${
+            isWindows ? "app-header-windows" : ""
+          }`}
           data-tauri-drag-region="deep"
         >
           <div className="min-w-0">

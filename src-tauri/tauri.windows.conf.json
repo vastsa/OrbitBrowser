@@ -1,5 +1,27 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "Orbit Browser",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 1280,
+        "minHeight": 720,
+        "label": "main",
+        "center": true,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
+        "visible": true,
+        "backgroundColor": "#F4F5F7",
+        "decorations": false,
+        "shadow": true,
+        "transparent": false
+      }
+    ]
+  },
   "bundle": {
     "targets": ["nsis"],
     "windows": {

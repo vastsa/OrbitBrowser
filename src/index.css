@@ -60,6 +60,12 @@
 
   --header-border: rgb(var(--color-line));
   --header-bg: var(--window-surface);
+  --window-control-fg: rgb(var(--color-ink-700));
+  --window-control-hover-bg: rgb(var(--color-ink-100));
+  --window-control-close-hover-bg: rgb(var(--color-danger-strong));
+  --window-control-close-hover-fg: rgb(var(--color-white));
+  --window-control-width: 46px;
+  --window-control-height: 38px;
   --menu-active-border: transparent;
   --menu-active-bg: rgb(227 227 232);
   --menu-idle-hover-border: transparent;
@@ -410,6 +416,47 @@ textarea[data-code-editor="true"] {
   .app-header {
     border-color: var(--header-border);
     background-color: var(--header-bg);
+  }
+
+  .app-header-windows {
+    padding-right: calc(var(--window-control-width) * 3 + 1.5rem);
+  }
+
+  .window-controls {
+    height: var(--window-control-height);
+    color: var(--window-control-fg);
+  }
+
+  .window-control {
+    display: flex;
+    width: var(--window-control-width);
+    height: var(--window-control-height);
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    transition:
+      color 120ms ease-out,
+      background-color 120ms ease-out;
+  }
+
+  .window-control:hover {
+    background-color: var(--window-control-hover-bg);
+  }
+
+  .window-control:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid rgb(var(--color-brand-500));
+    outline-offset: -2px;
+  }
+
+  .window-control-close:hover,
+  .window-control-close:focus-visible {
+    background-color: var(--window-control-close-hover-bg);
+    color: var(--window-control-close-hover-fg);
   }
 
   .app-menu-item {
@@ -1012,6 +1059,10 @@ textarea[data-code-editor="true"] {
 
     --header-border: rgb(56 56 58);
     --header-bg: var(--window-surface);
+    --window-control-fg: rgb(var(--color-ink-300));
+    --window-control-hover-bg: rgb(var(--color-ink-700));
+    --window-control-close-hover-bg: rgb(var(--color-danger-soft));
+    --window-control-close-hover-fg: rgb(var(--color-white));
     --menu-active-border: transparent;
     --menu-active-bg: rgb(58 58 60);
     --menu-active-fg: rgb(var(--color-white));

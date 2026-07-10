@@ -51,6 +51,12 @@ export const copy = {
       },
     },
     layout: {
+      windowControls: {
+        minimize: "最小化",
+        maximize: "最大化",
+        restore: "向下还原",
+        close: "关闭",
+      },
       nav: {
         environments: "环境管理",
         tasks: "任务编排",
@@ -569,6 +575,12 @@ export const copy = {
       },
     },
     layout: {
+      windowControls: {
+        minimize: "Minimize",
+        maximize: "Maximize",
+        restore: "Restore down",
+        close: "Close",
+      },
       nav: {
         environments: "Env",
         tasks: "Tasks",
