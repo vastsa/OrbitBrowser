@@ -50,6 +50,31 @@ components, `camelCase` for TypeScript variables/functions, and `snake_case`
 for Rust modules/functions. Keep CLI flags lowercase with hyphens, for example
 `--user-data-dir`.
 
+## UI Styling & Theme Tokens
+
+All UI styling must use the shared theme system and work in both light and dark
+color schemes. These rules apply to React components, CSS, HTML, startup
+screens, and native Tauri window styling.
+
+- Do not add raw hex, `rgb()`, `rgba()`, or `hsl()` theme colors in components.
+  Use the existing Tailwind theme utilities or named semantic CSS variables.
+- New reusable surfaces, foregrounds, borders, focus states, controls, and
+  status styles should use semantic tokens. Existing palette utilities are
+  acceptable only when they already have verified light and dark mappings.
+- Every new semantic color token must define both a light value under `:root`
+  and a dark value under `@media (prefers-color-scheme: dark)`.
+- Prefer the standard Tailwind spacing, sizing, typography, radius, shadow, and
+  duration scales. Move repeated or page-specific arbitrary geometry into
+  named CSS variables or component classes instead of scattering literals.
+- Runtime-derived geometry, such as a progress percentage, may use a dynamic
+  inline style when the value comes from application state.
+- When touching legacy UI, migrate relevant raw theme values toward the shared
+  token system without forcing unrelated large-scale rewrites.
+- Verify every UI change with both light and dark system preferences. Check
+  default, hover, focus, selected, disabled, loading, success, warning, and
+  error states for readable contrast and visible boundaries, then run
+  `pnpm build`.
+
 ## Testing Guidelines
 
 For UI changes, run `pnpm build`. For storage, queue, browser lifecycle, proxy,

@@ -28,6 +28,14 @@ pnpm test:rust
 
 - Use TypeScript, React, and Tailwind CSS for the UI.
 - Use Rust for the local core and keep command, storage, domain, browser, and queue boundaries clear.
+- UI colors must use the shared Tailwind theme or semantic CSS variables; do
+  not add raw color literals in React components.
+- New semantic color tokens must provide matching light `:root` and dark
+  `@media (prefers-color-scheme: dark)` values before use.
+- Prefer standard Tailwind scales. Move repeated arbitrary geometry into named
+  CSS variables or component classes.
+- Verify UI changes under both light and dark system preferences, including all
+  interactive and status states, then run `pnpm build`.
 - Do not commit runtime data, browser profiles, cookies, screenshots, task artifacts, or proxy credentials.
 - Changes that touch Chrome launch, CDP, proxies, or task execution should include relevant tests or smoke-test notes.
 
