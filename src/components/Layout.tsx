@@ -72,9 +72,11 @@ export function Layout() {
       {isWindows ? <WindowControls labels={copy.layout.windowControls} /> : null}
       <aside
         className="app-sidebar fixed inset-y-0 left-0 z-20 flex w-56 flex-col overflow-hidden border-r"
-        data-tauri-drag-region="deep"
       >
-        <div className="relative flex h-20 items-center gap-3 px-5">
+        <div
+          className="relative flex h-20 items-center gap-3 px-5"
+          data-tauri-drag-region="deep"
+        >
           <picture className="h-9 w-9 shrink-0">
             <source media="(prefers-color-scheme: dark)" srcSet={appLogoDark} />
             <img

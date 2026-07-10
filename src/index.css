@@ -199,13 +199,14 @@ html,
 body {
   width: 100%;
   height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
   min-width: 1280px;
   min-height: 100vh;
   margin: 0;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 #root {
@@ -231,6 +232,8 @@ textarea {
 
 .app-shell {
   cursor: default;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 input:not([type="checkbox"]):not([type="radio"]),
@@ -557,7 +560,8 @@ textarea[data-code-editor="true"] {
 
   .table-scroll {
     @apply h-full min-h-0 max-h-full overflow-auto;
-    overscroll-behavior: contain;
+    overscroll-behavior: none;
+    touch-action: pan-x pan-y;
     scrollbar-gutter: stable;
   }
 
