@@ -78,6 +78,11 @@ jobs:
             librsvg2-dev \
             libxdo-dev
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
