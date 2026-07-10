@@ -216,6 +216,9 @@ export const copy = {
           "可选。填写能 import camoufox 的 Python 可执行文件；为空时自动检测 python3/python。",
         camoufoxRuntimeHint:
           "Camoufox 环境由 Orbit 启动和停止，支持代理、语言、时区、WebRTC 防护、持久 Profile 和自动化控制。",
+        chromeNativeRuntimeHint:
+          "Chrome 启动时按代理出口 IP 自动匹配语言、Intl、时区与定位；保留原生 User-Agent、Platform 和字体，不向页面注入指纹修补脚本。",
+        chromeTimezoneHint: "Chrome 启动时自动使用代理出口 IP 对应的时区。",
         profileDir: "Profile 目录",
         profileHint: "为空时由应用自动创建隔离 Profile。",
         webRtcProtection: "启用 WebRTC 防泄漏",
@@ -742,6 +745,10 @@ export const copy = {
           "Optional. Use a Python executable that can import camoufox; leave empty to auto-detect python3/python.",
         camoufoxRuntimeHint:
           "Camoufox environments can be launched and stopped by Orbit with proxy, locale, timezone, WebRTC protection, persistent profiles, and automation control.",
+        chromeNativeRuntimeHint:
+          "Chrome automatically matches language, Intl locale, timezone, and geolocation to the proxy exit IP while preserving native User-Agent, platform, and fonts without page patch scripts.",
+        chromeTimezoneHint:
+          "Chrome automatically uses the timezone of the proxy exit IP at startup.",
         profileDir: "Profile Directory",
         profileHint: "Leave empty to let the app create an isolated profile.",
         webRtcProtection: "Enable WebRTC leak protection",

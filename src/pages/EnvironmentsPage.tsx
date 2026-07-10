@@ -95,7 +95,7 @@ function createDefaultEnvironment(
       ? settingsLocale
       : fallbackEnvironmentDefaults.locale;
 
-  return {
+  return sanitizeEnvironmentDraft({
     name: `${labels.name} ${normalizedIndex}`,
     group_id: "",
     tags: [labels.tag],
@@ -123,7 +123,7 @@ function createDefaultEnvironment(
     seed: "",
     headless: false,
     start_url: "about:blank",
-  };
+  });
 }
 
 function toDraft(environment?: Environment): EnvironmentDraft {
@@ -131,7 +131,7 @@ function toDraft(environment?: Environment): EnvironmentDraft {
     return createDefaultEnvironment();
   }
 
-  return {
+  return sanitizeEnvironmentDraft({
     id: environment.id,
     name: environment.name,
     group_id: environment.group_id ?? "",
@@ -155,7 +155,7 @@ function toDraft(environment?: Environment): EnvironmentDraft {
     seed: environment.seed ?? "",
     headless: environment.headless,
     start_url: environment.start_url ?? "",
-  };
+  });
 }
 
 function cleanOptionalText(value?: string | null): string | undefined {
@@ -192,7 +192,7 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
             defaultProxyBypassList,
         };
 
-  return {
+  const normalized = {
     ...draft,
     name: draft.name.trim(),
     group_id: cleanOptionalText(draft.group_id),
@@ -214,6 +214,23 @@ function sanitizeEnvironmentDraft(draft: EnvironmentDraft): EnvironmentDraft {
     seed: cleanOptionalText(draft.seed),
     start_url: cleanOptionalText(draft.start_url),
   };
+
+  if (normalized.browser_kind === "chrome") {
+    return {
+      ...normalized,
+      // Chrome 环境保持浏览器原生身份，只保留原生 CDP 时区与定位覆盖。
+      locale: "auto",
+      timezone_id: "auto",
+      user_agent: undefined,
+      platform: undefined,
+      web_rtc_protection: false,
+      device_scale_factor: 1,
+      environment_mode: "standard",
+      seed: undefined,
+    };
+  }
+
+  return normalized;
 }
 
 function parseTagsText(value: string): string[] {
@@ -1547,7 +1564,9 @@ function EnvironmentModal({
   };
 
   const updateBrowserKind = (browserKind: BrowserKind) => {
-    setDraft((current) => ({ ...current, browser_kind: browserKind }));
+    setDraft((current) =>
+      sanitizeEnvironmentDraft({ ...current, browser_kind: browserKind }),
+    );
   };
 
   const updateProxy = <TKey extends keyof ProxyConfig>(
@@ -1690,17 +1709,19 @@ function EnvironmentModal({
             />
             Headless
           </label>
-          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-700">
-            <input
-              checked={draft.web_rtc_protection}
-              className="h-4 w-4"
-              onChange={(event) =>
-                update("web_rtc_protection", event.target.checked)
-              }
-              type="checkbox"
-            />
-            {text.fields.webRtcProtection}
-          </label>
+          {draft.browser_kind === "camoufox" ? (
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-700">
+              <input
+                checked={draft.web_rtc_protection}
+                className="h-4 w-4"
+                onChange={(event) =>
+                  update("web_rtc_protection", event.target.checked)
+                }
+                type="checkbox"
+              />
+              {text.fields.webRtcProtection}
+            </label>
+          ) : null}
         </section>
 
         <section className="grid gap-3 border-b border-line pb-5">
@@ -1767,15 +1788,27 @@ function EnvironmentModal({
           <h3 className="text-sm font-semibold text-ink-900">
             {text.sections.runtime}
           </h3>
+          {draft.browser_kind === "chrome" ? (
+            <div className="rounded-md border border-line bg-ink-50 px-3 py-2 text-sm leading-6 text-ink-700">
+              {text.fields.chromeNativeRuntimeHint}
+            </div>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {draft.browser_kind === "camoufox" ? (
+              <TextField
+                hint={text.fields.localeHint}
+                label={text.fields.locale}
+                onChange={(event) => update("locale", event.target.value)}
+                value={draft.locale}
+              />
+            ) : null}
             <TextField
-              hint={text.fields.localeHint}
-              label={text.fields.locale}
-              onChange={(event) => update("locale", event.target.value)}
-              value={draft.locale}
-            />
-            <TextField
-              hint={text.fields.timezoneHint}
+              disabled={draft.browser_kind === "chrome"}
+              hint={
+                draft.browser_kind === "chrome"
+                  ? text.fields.chromeTimezoneHint
+                  : text.fields.timezoneHint
+              }
               label={copy.common.timezone}
               onChange={(event) => update("timezone_id", event.target.value)}
               value={draft.timezone_id}
@@ -1810,53 +1843,59 @@ function EnvironmentModal({
               type="number"
               value={draft.geolocation_longitude ?? ""}
             />
-            <TextField
-              label={text.fields.viewportWidth}
-              min={320}
-              onChange={(event) =>
-                update("viewport_width", Number(event.target.value) || 1280)
-              }
-              type="number"
-              value={draft.viewport_width}
-            />
-            <TextField
-              label={text.fields.viewportHeight}
-              min={240}
-              onChange={(event) =>
-                update("viewport_height", Number(event.target.value) || 800)
-              }
-              type="number"
-              value={draft.viewport_height}
-            />
-            <TextField
-              label={text.fields.scaleFactor}
-              min={0.5}
-              onChange={(event) =>
-                update("device_scale_factor", Number(event.target.value) || 1)
-              }
-              step={0.25}
-              type="number"
-              value={draft.device_scale_factor}
-            />
-            <TextField
-              hint={text.fields.platformHint}
-              label={text.fields.platform}
-              onChange={(event) => update("platform", event.target.value)}
-              value={draft.platform ?? ""}
-            />
-            <TextField
-              hint={text.fields.seedHint}
-              label={text.fields.seed}
-              onChange={(event) => update("seed", event.target.value)}
-              value={draft.seed ?? ""}
-            />
+            {draft.browser_kind === "camoufox" ? (
+              <>
+                <TextField
+                  label={text.fields.viewportWidth}
+                  min={320}
+                  onChange={(event) =>
+                    update("viewport_width", Number(event.target.value) || 1280)
+                  }
+                  type="number"
+                  value={draft.viewport_width}
+                />
+                <TextField
+                  label={text.fields.viewportHeight}
+                  min={240}
+                  onChange={(event) =>
+                    update("viewport_height", Number(event.target.value) || 800)
+                  }
+                  type="number"
+                  value={draft.viewport_height}
+                />
+                <TextField
+                  label={text.fields.scaleFactor}
+                  min={0.5}
+                  onChange={(event) =>
+                    update("device_scale_factor", Number(event.target.value) || 1)
+                  }
+                  step={0.25}
+                  type="number"
+                  value={draft.device_scale_factor}
+                />
+                <TextField
+                  hint={text.fields.platformHint}
+                  label={text.fields.platform}
+                  onChange={(event) => update("platform", event.target.value)}
+                  value={draft.platform ?? ""}
+                />
+                <TextField
+                  hint={text.fields.seedHint}
+                  label={text.fields.seed}
+                  onChange={(event) => update("seed", event.target.value)}
+                  value={draft.seed ?? ""}
+                />
+              </>
+            ) : null}
           </div>
-          <TextareaField
-            hint={text.fields.userAgentHint}
-            label={text.fields.userAgent}
-            onChange={(event) => update("user_agent", event.target.value)}
-            value={draft.user_agent ?? ""}
-          />
+          {draft.browser_kind === "camoufox" ? (
+            <TextareaField
+              hint={text.fields.userAgentHint}
+              label={text.fields.userAgent}
+              onChange={(event) => update("user_agent", event.target.value)}
+              value={draft.user_agent ?? ""}
+            />
+          ) : null}
         </section>
       </div>
     </Modal>

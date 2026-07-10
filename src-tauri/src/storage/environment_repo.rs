@@ -51,7 +51,8 @@ pub fn get(db: &Db, id: &str) -> AppResult<Environment> {
     })
 }
 
-pub fn save(db: &Db, input: SaveEnvironmentInput) -> AppResult<Environment> {
+pub fn save(db: &Db, mut input: SaveEnvironmentInput) -> AppResult<Environment> {
+    normalize_browser_specific_fields(&mut input);
     validate_input(&input)?;
     let conn = db.connect()?;
     let now = Utc::now().to_rfc3339();
@@ -137,6 +138,21 @@ pub fn save(db: &Db, input: SaveEnvironmentInput) -> AppResult<Environment> {
     )?;
 
     get(db, &id)
+}
+
+fn normalize_browser_specific_fields(input: &mut SaveEnvironmentInput) {
+    if matches!(input.browser_kind, BrowserKind::Chrome) {
+        // Chrome 保持原生浏览器身份；环境级配置只允许后续通过原生 CDP
+        // 应用时区与定位，避免保存的旧指纹字段从 MCP/导入路径重新生效。
+        input.locale = "auto".to_string();
+        input.timezone_id = Some("auto".to_string());
+        input.user_agent = None;
+        input.platform = None;
+        input.web_rtc_protection = false;
+        input.device_scale_factor = 1.0;
+        input.environment_mode = EnvironmentMode::Standard;
+        input.seed = None;
+    }
 }
 
 pub fn duplicate(db: &Db, id: &str) -> AppResult<Environment> {
@@ -372,4 +388,50 @@ fn parse_environment_mode(value: &str) -> EnvironmentMode {
 #[allow(dead_code)]
 fn _default_proxy() -> ProxyConfig {
     ProxyConfig::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chrome_save_policy_removes_identity_overrides() {
+        let mut input = SaveEnvironmentInput {
+            id: None,
+            name: "Chrome".to_string(),
+            group_id: None,
+            tags: Vec::new(),
+            notes: None,
+            browser_kind: BrowserKind::Chrome,
+            chrome_path_override: None,
+            proxy_config: ProxyConfig::default(),
+            locale: "zh-CN".to_string(),
+            timezone_id: Some("Asia/Shanghai".to_string()),
+            geolocation_latitude: Some(31.2304),
+            geolocation_longitude: Some(121.4737),
+            user_agent: Some("custom-agent".to_string()),
+            platform: Some("Win32".to_string()),
+            web_rtc_protection: true,
+            viewport_width: 1440,
+            viewport_height: 900,
+            device_scale_factor: 2.0,
+            environment_mode: EnvironmentMode::Custom,
+            seed: Some("seed".to_string()),
+            headless: false,
+            start_url: Some("about:blank".to_string()),
+        };
+
+        normalize_browser_specific_fields(&mut input);
+
+        assert_eq!(input.locale, "auto");
+        assert!(input.user_agent.is_none());
+        assert!(input.platform.is_none());
+        assert!(!input.web_rtc_protection);
+        assert_eq!(input.device_scale_factor, 1.0);
+        assert!(matches!(input.environment_mode, EnvironmentMode::Standard));
+        assert!(input.seed.is_none());
+        assert_eq!(input.timezone_id.as_deref(), Some("auto"));
+        assert_eq!(input.geolocation_latitude, Some(31.2304));
+        assert_eq!(input.geolocation_longitude, Some(121.4737));
+    }
 }

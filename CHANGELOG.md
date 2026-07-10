@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Aligned Chrome native language preferences, Intl locale, CDP timezone, and
+  geolocation with the proxy exit IP while preserving native UA, platform, and
+  font characteristics.
+- Removed Chrome locale, User-Agent, viewport, WebRTC, font, and JavaScript
+  geolocation patching paths; retained the extended profile controls for
+  Camoufox environments.
+
 ## 0.4.1
 
 - Fixed Windows builds by using the correct file version API feature and

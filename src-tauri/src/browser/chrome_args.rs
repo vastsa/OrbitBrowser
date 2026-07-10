@@ -12,21 +12,17 @@ pub struct ChromeLaunchPlan {
     pub proxy_extension_dir: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ChromeRuntimeOptions {
-    pub locale: String,
-    pub accept_language: String,
-    pub user_agent: Option<String>,
-}
-
 pub fn build(
     data_dir: &Path,
     env: &Environment,
     profile_dir: &Path,
     cdp_port: u16,
-    runtime: &ChromeRuntimeOptions,
+    accept_languages: Option<&str>,
 ) -> AppResult<ChromeLaunchPlan> {
-    write_profile_preferences(profile_dir, &runtime.accept_language)?;
+    migrate_legacy_orbit_profile_preferences(profile_dir)?;
+    if let Some(accept_languages) = accept_languages {
+        write_accept_languages_preference(profile_dir, accept_languages)?;
+    }
 
     let mut args = vec![
         format!("--user-data-dir={}", profile_dir.to_string_lossy()),
@@ -35,28 +31,10 @@ pub fn build(
         "--no-default-browser-check".to_string(),
         "--disable-popup-blocking".to_string(),
         "--disable-search-engine-choice-screen".to_string(),
-        format!("--lang={}", runtime.locale),
-        format!(
-            "--window-size={},{}",
-            env.viewport_width, env.viewport_height
-        ),
     ];
 
     if env.headless {
         args.push("--headless=new".to_string());
-    }
-
-    if let Some(user_agent) = runtime
-        .user_agent
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        args.push(format!("--user-agent={user_agent}"));
-    }
-
-    if env.web_rtc_protection {
-        args.push("--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string());
     }
 
     let proxy_extension_dir = if env.proxy_config.has_auth() {
@@ -82,6 +60,117 @@ pub fn build(
         args,
         proxy_extension_dir,
     })
+}
+
+fn write_accept_languages_preference(profile_dir: &Path, accept_languages: &str) -> AppResult<()> {
+    let default_dir = profile_dir.join("Default");
+    std::fs::create_dir_all(&default_dir)?;
+    let preferences_path = default_dir.join("Preferences");
+    let mut preferences = if preferences_path.exists() {
+        std::fs::read_to_string(&preferences_path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}))
+    } else {
+        json!({})
+    };
+    if !preferences
+        .get("intl")
+        .is_some_and(|value| value.is_object())
+    {
+        preferences["intl"] = json!({});
+    }
+    preferences["intl"]["accept_languages"] = json!(accept_languages);
+    std::fs::write(
+        preferences_path,
+        serde_json::to_string_pretty(&preferences)?,
+    )?;
+    Ok(())
+}
+
+fn migrate_legacy_orbit_profile_preferences(profile_dir: &Path) -> AppResult<()> {
+    std::fs::create_dir_all(profile_dir)?;
+    let migration_marker = profile_dir.join(".orbit-native-profile-v1");
+    if migration_marker.exists() {
+        return Ok(());
+    }
+
+    let preferences_path = profile_dir.join("Default").join("Preferences");
+    if !preferences_path.exists() {
+        std::fs::write(migration_marker, b"1")?;
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&preferences_path)?;
+    let mut preferences = match serde_json::from_str::<Value>(&content) {
+        Ok(Value::Object(preferences)) => preferences,
+        _ => {
+            std::fs::write(migration_marker, b"1")?;
+            return Ok(());
+        }
+    };
+    let legacy_accept_languages = preferences
+        .get("intl")
+        .and_then(|value| value.get("accept_languages"))
+        .and_then(Value::as_str)
+        .is_some_and(is_legacy_orbit_accept_languages);
+    let legacy_geolocation_permission = preferences
+        .get("profile")
+        .and_then(|value| value.get("default_content_setting_values"))
+        .and_then(|value| value.get("geolocation"))
+        .and_then(Value::as_i64)
+        == Some(1);
+    let changed = legacy_accept_languages && legacy_geolocation_permission;
+
+    if changed {
+        if let Some(Value::Object(intl)) = preferences.get_mut("intl") {
+            intl.remove("accept_languages");
+            if intl.is_empty() {
+                preferences.remove("intl");
+            }
+        }
+        if let Some(Value::Object(profile)) = preferences.get_mut("profile") {
+            if let Some(Value::Object(defaults)) = profile.get_mut("default_content_setting_values")
+            {
+                defaults.remove("geolocation");
+                if defaults.is_empty() {
+                    profile.remove("default_content_setting_values");
+                }
+            }
+            if profile.is_empty() {
+                preferences.remove("profile");
+            }
+        }
+        std::fs::write(
+            preferences_path,
+            serde_json::to_string_pretty(&Value::Object(preferences))?,
+        )?;
+    }
+    std::fs::write(migration_marker, b"1")?;
+    Ok(())
+}
+
+fn is_legacy_orbit_accept_languages(value: &str) -> bool {
+    matches!(
+        value,
+        "zh-CN,zh,en"
+            | "zh-HK,zh,en"
+            | "zh-MO,zh,en"
+            | "zh-TW,zh,en"
+            | "ja-JP,ja,en"
+            | "ko-KR,ko,en"
+            | "en-GB,en"
+            | "en-US,en"
+            | "en-IN,en"
+            | "en-SG,en"
+            | "de-DE,de,en"
+            | "fr-FR,fr,en"
+            | "es-ES,es,en"
+            | "it-IT,it,en"
+            | "pt-BR,pt,en"
+            | "ru-RU,ru,en"
+    )
 }
 
 pub fn cleanup_proxy_extension(data_dir: &Path, environment_id: &str) -> AppResult<()> {
@@ -168,54 +257,6 @@ chrome.webRequest.onAuthRequired.addListener(
     Ok(extension_dir)
 }
 
-fn write_profile_preferences(profile_dir: &Path, accept_language: &str) -> AppResult<()> {
-    let default_profile_dir = profile_dir.join("Default");
-    std::fs::create_dir_all(&default_profile_dir)?;
-    let preferences_path = default_profile_dir.join("Preferences");
-    let mut preferences = if preferences_path.exists() {
-        std::fs::read_to_string(&preferences_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}))
-    } else {
-        json!({})
-    };
-
-    let accept_language = accept_language
-        .split(',')
-        .filter_map(|item| item.split(';').next())
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .collect::<Vec<_>>()
-        .join(",");
-    if !preferences
-        .get("intl")
-        .is_some_and(|value| value.is_object())
-    {
-        preferences["intl"] = json!({});
-    }
-    preferences["intl"]["accept_languages"] = json!(accept_language);
-    if !preferences
-        .get("profile")
-        .is_some_and(|value| value.is_object())
-    {
-        preferences["profile"] = json!({});
-    }
-    if !preferences["profile"]
-        .get("default_content_setting_values")
-        .is_some_and(|value| value.is_object())
-    {
-        preferences["profile"]["default_content_setting_values"] = json!({});
-    }
-    preferences["profile"]["default_content_setting_values"]["geolocation"] = json!(1);
-    std::fs::write(
-        preferences_path,
-        serde_json::to_string_pretty(&preferences)?,
-    )?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,14 +301,6 @@ mod tests {
         }
     }
 
-    fn runtime_options() -> ChromeRuntimeOptions {
-        ChromeRuntimeOptions {
-            locale: "zh-CN".to_string(),
-            accept_language: "zh-CN,zh;q=0.9,en;q=0.8".to_string(),
-            user_agent: Some("OrbitTestAgent/1.0".to_string()),
-        }
-    }
-
     #[test]
     fn authenticated_proxy_generates_extension_files() {
         let root = std::env::temp_dir().join(format!("orbit-proxy-test-{}", uuid::Uuid::new_v4()));
@@ -301,7 +334,7 @@ mod tests {
         env.proxy_config.password = None;
         let profile_dir = root.join("profiles").join("env_proxy_auth");
 
-        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
+        let plan = build(&root, &env, &profile_dir, 9222, None).unwrap();
 
         assert!(plan.proxy_extension_dir.is_none());
         assert!(plan
@@ -319,27 +352,127 @@ mod tests {
         env.headless = true;
         let profile_dir = root.join("profiles").join("env_headless");
 
-        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
+        let plan = build(&root, &env, &profile_dir, 9222, None).unwrap();
 
         assert!(plan.args.iter().any(|arg| arg == "--headless=new"));
     }
 
     #[test]
-    fn runtime_languages_are_written_to_profile_preferences() {
+    fn chrome_launch_keeps_native_identity_and_window_fingerprint() {
         let root = std::env::temp_dir().join(format!("orbit-lang-test-{}", uuid::Uuid::new_v4()));
-        let env = test_environment();
+        let mut env = test_environment();
+        env.user_agent = Some("OrbitTestAgent/1.0".to_string());
+        env.web_rtc_protection = true;
         let profile_dir = root.join("profiles").join("env_lang");
 
-        let plan = build(&root, &env, &profile_dir, 9222, &runtime_options()).unwrap();
-        let preferences =
-            std::fs::read_to_string(profile_dir.join("Default").join("Preferences")).unwrap();
+        let plan = build(&root, &env, &profile_dir, 9222, None).unwrap();
 
-        assert!(plan.args.iter().any(|arg| arg == "--lang=zh-CN"));
-        assert!(plan
+        assert!(!plan.args.iter().any(|arg| arg.starts_with("--lang=")));
+        assert!(!plan.args.iter().any(|arg| arg.starts_with("--user-agent=")));
+        assert!(!plan
             .args
             .iter()
-            .any(|arg| arg == "--user-agent=OrbitTestAgent/1.0"));
-        assert!(preferences.contains(r#""accept_languages": "zh-CN,zh,en""#));
+            .any(|arg| arg.starts_with("--window-size=")));
+        assert!(!plan
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--force-webrtc-ip-handling-policy=")));
+        assert!(!profile_dir.join("Default").join("Preferences").exists());
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+    }
+
+    #[test]
+    fn chrome_launch_writes_ip_matched_native_language_preference() {
+        let root =
+            std::env::temp_dir().join(format!("orbit-language-test-{}", uuid::Uuid::new_v4()));
+        let env = test_environment();
+        let profile_dir = root.join("profiles").join("env_language");
+
+        build(&root, &env, &profile_dir, 9222, Some("en-US,en")).unwrap();
+
+        let preferences: Value = serde_json::from_str(
+            &std::fs::read_to_string(profile_dir.join("Default").join("Preferences")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            preferences.pointer("/intl/accept_languages"),
+            Some(&json!("en-US,en"))
+        );
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn chrome_launch_migrates_legacy_orbit_profile_preferences_once() {
+        let root = std::env::temp_dir().join(format!("orbit-prefs-test-{}", uuid::Uuid::new_v4()));
+        let env = test_environment();
+        let profile_dir = root.join("profiles").join("env_prefs");
+        let default_dir = profile_dir.join("Default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        std::fs::write(
+            default_dir.join("Preferences"),
+            serde_json::to_string_pretty(&json!({
+                "intl": { "accept_languages": "zh-CN,zh,en", "charset_default": "UTF-8" },
+                "profile": {
+                    "default_content_setting_values": { "geolocation": 1, "notifications": 2 },
+                    "name": "Person 1"
+                },
+                "browser": { "check_default_browser": false }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        build(&root, &env, &profile_dir, 9222, None).unwrap();
+
+        let preferences: Value = serde_json::from_str(
+            &std::fs::read_to_string(default_dir.join("Preferences")).unwrap(),
+        )
+        .unwrap();
+        assert!(preferences.pointer("/intl/accept_languages").is_none());
+        assert!(preferences
+            .pointer("/profile/default_content_setting_values/geolocation")
+            .is_none());
+        assert_eq!(
+            preferences.pointer("/intl/charset_default"),
+            Some(&json!("UTF-8"))
+        );
+        assert_eq!(
+            preferences.pointer("/profile/default_content_setting_values/notifications"),
+            Some(&json!(2))
+        );
+        assert_eq!(
+            preferences.pointer("/profile/name"),
+            Some(&json!("Person 1"))
+        );
+        assert!(profile_dir.join(".orbit-native-profile-v1").exists());
+
+        let mut user_preferences = preferences;
+        user_preferences["intl"]["accept_languages"] = json!("fr-CA,fr,en");
+        user_preferences["profile"]["default_content_setting_values"]["geolocation"] = json!(2);
+        std::fs::write(
+            default_dir.join("Preferences"),
+            serde_json::to_string_pretty(&user_preferences).unwrap(),
+        )
+        .unwrap();
+
+        build(&root, &env, &profile_dir, 9222, None).unwrap();
+
+        let preserved: Value = serde_json::from_str(
+            &std::fs::read_to_string(default_dir.join("Preferences")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            preserved.pointer("/intl/accept_languages"),
+            Some(&json!("fr-CA,fr,en"))
+        );
+        assert_eq!(
+            preserved.pointer("/profile/default_content_setting_values/geolocation"),
+            Some(&json!(2))
+        );
 
         std::fs::remove_dir_all(&root).unwrap();
     }

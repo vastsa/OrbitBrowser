@@ -38,12 +38,12 @@ proxy flags, screenshots, stale state, and scattered logs.
 
 **Orbit Browser turns that chaos into a local desktop control plane.**
 
-Create isolated browser environments, bind proxies and runtime fingerprints,
+Create isolated browser environments, bind proxies and runtime settings,
 run repeatable JavaScript tasks, inspect logs and artifacts, and expose the same
 capabilities to local agents through MCP — all backed by local SQLite storage.
 
 ```text
-[Environment] → [Chrome profile + proxy + locale + timezone]
+[Environment] → [Browser profile + proxy + runtime policy]
       │
       ├── start / stop / recover
       ├── run automation tasks
@@ -74,8 +74,11 @@ capabilities to local agents through MCP — all backed by local SQLite storage.
 ## Highlights
 
 - **Isolated browser fleets**  
-  Manage Chrome, Chromium, or Edge profiles with independent storage, viewport,
-  locale, timezone, geolocation, tags, groups, and launch options.
+  Manage Chrome, Chromium, Edge, or Camoufox profiles with independent storage,
+  proxies, tags, groups, and launch options. Chrome keeps its native browser
+  User-Agent, platform, and font identity while matching its native language
+  preference, Intl locale, CDP timezone, and geolocation to the proxy exit IP;
+  Camoufox provides the extended fingerprint profile.
 
 - **Proxy-first workflow**  
   Configure HTTP, HTTPS, SOCKS4, SOCKS5, proxy authentication, bypass lists, and
@@ -115,7 +118,8 @@ capabilities to local agents through MCP — all backed by local SQLite storage.
 Orbit Browser
 ├── Browser environments
 │   ├── Isolated Chrome / Chromium / Edge profiles
-│   ├── Proxy, locale, timezone, viewport, geolocation
+│   ├── Chrome exit-IP language + CDP timezone/geolocation
+│   ├── Camoufox extended runtime profile
 │   └── Start, stop, restart, recover, diagnose
 ├── Automation tasks
 │   ├── Controlled JavaScript runtime
@@ -136,8 +140,11 @@ Orbit Browser
 ### 1. Create browser environments
 
 Define dedicated browser contexts for different accounts, regions, projects, or
-workflows. Each environment can own its profile, proxy, locale, timezone,
-viewport, start URL, and runtime options.
+workflows. Each environment can own its profile, proxy, start URL, and runtime
+policy. Chrome automatically aligns native language preferences, Intl locale,
+CDP timezone, and geolocation with the proxy exit IP while preserving native
+UA, platform, and font signals. Camoufox exposes the extended locale, viewport,
+platform, and WebRTC profile.
 
 ### 2. Run automation tasks
 

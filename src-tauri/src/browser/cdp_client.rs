@@ -187,15 +187,7 @@ impl CdpPage {
             }),
         )
         .await
-        .map(|_| ())?;
-        let source = geolocation_override_script(latitude, longitude, accuracy);
-        self.call(
-            "Page.addScriptToEvaluateOnNewDocument",
-            json!({ "source": source }),
-        )
-        .await?;
-        self.evaluate(&source).await?;
-        Ok(())
+        .map(|_| ())
     }
 
     pub async fn evaluate(&mut self, expression: &str) -> AppResult<Value> {
@@ -591,61 +583,6 @@ new Promise((resolve, reject) => {{
             _ => {}
         }
     }
-}
-
-fn geolocation_override_script(latitude: f64, longitude: f64, accuracy: f64) -> String {
-    format!(
-        r#"
-(() => {{
-  const latitude = {latitude};
-  const longitude = {longitude};
-  const accuracy = {accuracy};
-  const position = () => ({{
-    coords: {{
-      latitude,
-      longitude,
-      accuracy,
-      altitude: null,
-      altitudeAccuracy: null,
-      heading: null,
-      speed: null
-    }},
-    timestamp: Date.now()
-  }});
-  const geolocation = {{
-    getCurrentPosition(success, error, options) {{
-      if (typeof success === "function") {{
-        setTimeout(() => success(position()), 0);
-      }}
-    }},
-    watchPosition(success, error, options) {{
-      const id = Math.floor(Math.random() * 1000000) + 1;
-      if (typeof success === "function") {{
-        setTimeout(() => success(position()), 0);
-      }}
-      return id;
-    }},
-    clearWatch(id) {{}}
-  }};
-  Object.defineProperty(navigator, "geolocation", {{
-    configurable: true,
-    enumerable: true,
-    value: geolocation
-  }});
-  const permissions = navigator.permissions;
-  if (permissions && typeof permissions.query === "function" && !permissions.__orbitGeolocationPatched) {{
-    const originalQuery = permissions.query.bind(permissions);
-    Object.defineProperty(permissions, "__orbitGeolocationPatched", {{ value: true }});
-    permissions.query = (descriptor) => {{
-      if (descriptor && descriptor.name === "geolocation") {{
-        return Promise.resolve({{ state: "granted", onchange: null }});
-      }}
-      return originalQuery(descriptor);
-    }};
-  }}
-}})()
-"#
-    )
 }
 
 fn version_url(port: u16) -> String {

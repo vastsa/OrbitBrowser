@@ -37,10 +37,10 @@
 
 **Orbit Browser 把这些混乱收束成一个本地桌面控制台。**
 
-你可以创建隔离浏览器环境，绑定代理和运行时指纹，执行可复用的 JavaScript 任务，查看日志与产物，并通过 MCP 将同一套能力开放给本地 Agent。
+你可以创建隔离浏览器环境，绑定代理和运行策略，执行可复用的 JavaScript 任务，查看日志与产物，并通过 MCP 将同一套能力开放给本地 Agent。
 
 ```text
-[环境] → [Chrome Profile + 代理 + 语言地区 + 时区]
+[环境] → [浏览器 Profile + 代理 + 运行策略]
   │
   ├── 启动 / 停止 / 恢复
   ├── 执行自动化任务
@@ -71,7 +71,9 @@
 ## 核心亮点
 
 - **隔离浏览器集群**  
-  管理 Chrome、Chromium 或 Edge Profile。每个环境都可以拥有独立存储、窗口尺寸、语言地区、时区、地理位置、标签、分组和启动参数。
+  管理 Chrome、Chromium、Edge 或 Camoufox Profile。Chrome 保留原生 UA、
+  Platform 和字体信号，同时按代理出口 IP 匹配原生语言偏好、Intl、CDP
+  时区和定位；Camoufox 提供扩展指纹配置。
 
 - **代理优先的工作流**  
   支持 HTTP、HTTPS、SOCKS4、SOCKS5、代理认证、绕过列表，以及按环境执行代理连通性检查。
@@ -107,7 +109,8 @@
 Orbit Browser
 ├── 浏览器环境
 │   ├── 隔离 Chrome / Chromium / Edge Profile
-│   ├── 代理、Locale、Timezone、Viewport、地理位置
+│   ├── Chrome 出口 IP 语言 + CDP 时区/定位
+│   ├── Camoufox 扩展运行配置
 │   └── 启动、停止、重启、恢复、诊断
 ├── 自动化任务
 │   ├── 受控 JavaScript Runtime
@@ -127,7 +130,10 @@ Orbit Browser
 
 ### 1. 创建浏览器环境
 
-为不同账号、地区、项目或任务创建独立环境。每个环境都可以配置 Profile、代理、Locale、Timezone、Viewport、启动地址和运行参数。
+为不同账号、地区、项目或任务创建独立环境。每个环境都可以配置 Profile、
+代理、启动地址和运行策略。Chrome 按代理出口 IP 自动匹配原生语言偏好、
+Intl、CDP 时区与定位，同时保留原生 UA、Platform 和字体；Camoufox 则
+开放 Locale、Viewport、Platform 和 WebRTC 等扩展配置。
 
 ### 2. 编写并运行自动化任务
 
