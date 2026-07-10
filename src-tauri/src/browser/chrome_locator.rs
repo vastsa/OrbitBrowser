@@ -214,6 +214,21 @@ pub fn resolve(override_path: Option<&str>, settings_path: Option<&str>) -> AppR
 }
 
 pub fn version(path: &Path) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 上 chrome.exe 是 GUI 子系统程序，频繁用 `--version` 探测
+        // 可能会唤起真实浏览器窗口。直接读取 EXE 版本资源，避免产生副作用。
+        return windows_file_version(path);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        version_by_process_probe(path)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn version_by_process_probe(path: &Path) -> Option<String> {
     const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
     let mut command = Command::new(path);
@@ -251,6 +266,76 @@ pub fn version(path: &Path) -> Option<String> {
     } else {
         Some(value)
     }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_file_version(path: &Path) -> Option<String> {
+    use std::ffi::{c_void, OsStr};
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::System::Diagnostics::Debug::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
+    };
+
+    let wide_path = to_wide_null(path.as_os_str());
+    let mut handle = 0u32;
+    let size = unsafe { GetFileVersionInfoSizeW(wide_path.as_ptr(), &mut handle) };
+    if size == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u8; size as usize];
+    let ok = unsafe {
+        GetFileVersionInfoW(
+            wide_path.as_ptr(),
+            0,
+            size,
+            buffer.as_mut_ptr().cast::<c_void>(),
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+
+    let mut fixed_info_ptr: *mut c_void = null_mut();
+    let mut fixed_info_len = 0u32;
+    let root = to_wide_null(OsStr::new("\\"));
+    let ok = unsafe {
+        VerQueryValueW(
+            buffer.as_ptr().cast::<c_void>(),
+            root.as_ptr(),
+            &mut fixed_info_ptr,
+            &mut fixed_info_len,
+        )
+    };
+    if ok == 0
+        || fixed_info_ptr.is_null()
+        || fixed_info_len < std::mem::size_of::<VS_FIXEDFILEINFO>() as u32
+    {
+        return None;
+    }
+
+    let fixed_info = unsafe { &*(fixed_info_ptr.cast::<VS_FIXEDFILEINFO>()) };
+    Some(format_fixed_file_version(
+        fixed_info.dwFileVersionMS,
+        fixed_info.dwFileVersionLS,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn to_wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn format_fixed_file_version(ms: u32, ls: u32) -> String {
+    format!(
+        "{}.{}.{}.{}",
+        (ms >> 16) & 0xffff,
+        ms & 0xffff,
+        (ls >> 16) & 0xffff,
+        ls & 0xffff
+    )
 }
 
 #[cfg(target_os = "windows")]
