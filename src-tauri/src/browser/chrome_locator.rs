@@ -271,9 +271,8 @@ fn version_by_process_probe(path: &Path) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn windows_file_version(path: &Path) -> Option<String> {
     use std::ffi::{c_void, OsStr};
-    use std::os::windows::ffi::OsStrExt;
     use std::ptr::null_mut;
-    use windows_sys::Win32::System::Diagnostics::Debug::{
+    use windows_sys::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
     };
 
@@ -324,6 +323,8 @@ fn windows_file_version(path: &Path) -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn to_wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
     value.encode_wide().chain(std::iter::once(0)).collect()
 }
 

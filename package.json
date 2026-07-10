@@ -1,6 +1,6 @@
 {
   "name": "orbit-browser",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local browser runtime orchestrator for isolated Chrome profiles and automation tasks.",
   "private": true,
   "type": "module",

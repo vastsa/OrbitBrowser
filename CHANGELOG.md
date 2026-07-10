@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed Windows builds by using the correct file version API feature and
+  import path for Chrome executable detection.
+
 ## 0.4.0
 
 - Added Camoufox environments with managed installation, browser runtime
