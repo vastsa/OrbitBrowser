@@ -36,7 +36,7 @@ pub struct Environment {
 #[serde(rename_all = "lowercase")]
 pub enum BrowserKind {
     Chrome,
-    Chromium,
+    Camoufox,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

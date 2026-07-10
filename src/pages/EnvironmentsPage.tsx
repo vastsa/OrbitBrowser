@@ -748,6 +748,7 @@ export function EnvironmentsPage() {
       const successRate = recentSuccessRate(environment, runs);
       const issues: string[] = [];
       if (
+        environment.browser_kind !== "camoufox" &&
         !settingsQuery.data?.chrome_path &&
         !environment.chrome_path_override
       ) {
@@ -1532,6 +1533,10 @@ function EnvironmentModal({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const updateBrowserKind = (browserKind: BrowserKind) => {
+    setDraft((current) => ({ ...current, browser_kind: browserKind }));
+  };
+
   const updateProxy = <TKey extends keyof ProxyConfig>(
     key: TKey,
     value: ProxyConfig[TKey],
@@ -1623,12 +1628,12 @@ function EnvironmentModal({
             <SelectField
               label={copy.common.browser}
               onChange={(event) =>
-                update("browser_kind", event.target.value as BrowserKind)
+                updateBrowserKind(event.target.value as BrowserKind)
               }
               value={draft.browser_kind}
             >
               <option value="chrome">Chrome</option>
-              <option value="chromium">Chromium</option>
+              <option value="camoufox">Camoufox</option>
             </SelectField>
             <TextField
               label={text.fields.startUrl}
@@ -1636,8 +1641,16 @@ function EnvironmentModal({
               value={draft.start_url ?? ""}
             />
             <TextField
-              hint={text.fields.chromePathHint}
-              label={text.fields.chromePathOverride}
+              hint={
+                draft.browser_kind === "camoufox"
+                  ? text.fields.camoufoxPathHint
+                  : text.fields.chromePathHint
+              }
+              label={
+                draft.browser_kind === "camoufox"
+                  ? text.fields.camoufoxPathOverride
+                  : text.fields.chromePathOverride
+              }
               onChange={(event) =>
                 update("chrome_path_override", event.target.value)
               }
@@ -1650,6 +1663,11 @@ function EnvironmentModal({
               value={draft.profile_dir ?? ""}
             />
           </div>
+          {draft.browser_kind === "camoufox" ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-warn">
+              {text.fields.camoufoxRuntimeHint}
+            </div>
+          ) : null}
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-700">
             <input
               checked={draft.headless}

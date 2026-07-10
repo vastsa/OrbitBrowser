@@ -2,11 +2,11 @@ use crate::app_state::AppState;
 use crate::browser::session_registry::BrowserSession;
 use crate::browser::timezone_controller::{BrowserRuntimeOverrides, GeolocationOverride};
 use crate::browser::{
-    cdp_client, chrome_args, chrome_locator, port_allocator, process_manager, profile_manager,
-    timezone_controller,
+    camoufox_locator, camoufox_runtime, cdp_client, chrome_args, chrome_locator, port_allocator,
+    process_manager, profile_manager, runtime_page, timezone_controller,
 };
 use crate::domain::environment::{
-    BrowserSessionRecord, Environment, EnvironmentRuntimeStatus, RuntimeStatus,
+    BrowserKind, BrowserSessionRecord, Environment, EnvironmentRuntimeStatus, RuntimeStatus,
     SaveEnvironmentInput,
 };
 use crate::domain::proxy::ProxyConfig;
@@ -15,6 +15,7 @@ use crate::storage::{environment_repo, legacy_cleanup, run_repo, settings_repo};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -151,9 +152,7 @@ async fn start_environment_inner_with_options(
     let profile_dir_text = profile_dir.to_string_lossy().to_string();
 
     if let Some(session) = state.sessions().get(&id) {
-        if process_manager::pid_alive(session.pid)
-            && process_manager::pid_command_contains(session.pid, &profile_dir_text)
-        {
+        if runtime_pid_matches(&env, session.pid, &profile_dir_text) {
             if launch_mode == BrowserLaunchMode::Headed
                 && process_manager::pid_command_contains(session.pid, "--headless")
             {
@@ -172,8 +171,10 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
-                apply_and_watch_runtime(session.cdp_port, runtime_fingerprint).await;
+                if !matches!(env.browser_kind, BrowserKind::Camoufox) {
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    apply_and_watch_runtime(session.cdp_port, runtime_fingerprint).await;
+                }
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
                     status: RuntimeStatus::Running,
@@ -191,9 +192,7 @@ async fn start_environment_inner_with_options(
         if record.environment_id != id {
             continue;
         }
-        if process_manager::pid_alive(record.pid)
-            && process_manager::pid_command_contains(record.pid, &profile_dir_text)
-        {
+        if runtime_pid_matches(&env, record.pid, &profile_dir_text) {
             if launch_mode == BrowserLaunchMode::Headed
                 && process_manager::pid_command_contains(record.pid, "--headless")
             {
@@ -212,8 +211,10 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
-                apply_and_watch_runtime(record.cdp_port, runtime_fingerprint).await;
+                if !matches!(env.browser_kind, BrowserKind::Camoufox) {
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    apply_and_watch_runtime(record.cdp_port, runtime_fingerprint).await;
+                }
                 state.sessions().upsert(BrowserSession {
                     environment_id: id.clone(),
                     pid: record.pid,
@@ -237,10 +238,10 @@ async fn start_environment_inner_with_options(
 
     if let Some(lock) = profile_manager::read_lock(state.data_dir(), &id)? {
         if process_manager::pid_alive(lock.pid) {
-            if !process_manager::pid_command_contains(lock.pid, &profile_dir_text) {
+            if !runtime_pid_matches(&env, lock.pid, &profile_dir_text) {
                 return Err(AppError::new(
                     "profile_locked",
-                    "Profile is already used by another Chrome process",
+                    "Profile is already used by another browser process",
                 )
                 .details(json!({ "pid": lock.pid, "profileDir": profile_dir_text }))
                 .retryable(true));
@@ -264,8 +265,10 @@ async fn start_environment_inner_with_options(
                     .retryable(true));
                 }
             } else {
-                let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
-                apply_and_watch_runtime(lock.cdp_port, runtime_fingerprint).await;
+                if !matches!(env.browser_kind, BrowserKind::Camoufox) {
+                    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+                    apply_and_watch_runtime(lock.cdp_port, runtime_fingerprint).await;
+                }
                 return Ok(EnvironmentRuntimeStatus {
                     environment_id: id,
                     status: RuntimeStatus::Running,
@@ -279,6 +282,9 @@ async fn start_environment_inner_with_options(
     }
 
     let settings = settings_repo::get(state.db())?;
+    if matches!(env.browser_kind, BrowserKind::Camoufox) {
+        return start_camoufox_environment(state, env, profile_dir, profile_dir_text).await;
+    }
     let chrome_path = chrome_locator::resolve(
         env.chrome_path_override.as_deref(),
         settings.chrome_path.as_deref(),
@@ -366,6 +372,148 @@ async fn start_environment_inner_with_options(
     })
 }
 
+fn runtime_pid_matches(env: &Environment, pid: u32, profile_dir_text: &str) -> bool {
+    if !process_manager::pid_alive(pid) {
+        return false;
+    }
+    if matches!(env.browser_kind, BrowserKind::Camoufox) {
+        return process_manager::pid_command_contains(pid, "orbit_camoufox_worker.py")
+            || process_manager::pid_command_contains(pid, &env.id);
+    }
+    process_manager::pid_command_contains(pid, profile_dir_text)
+}
+
+async fn start_camoufox_environment(
+    state: &AppState,
+    env: Environment,
+    profile_dir: std::path::PathBuf,
+    profile_dir_text: String,
+) -> AppResult<EnvironmentRuntimeStatus> {
+    let python_path = camoufox_locator::resolve(env.chrome_path_override.as_deref())?;
+    let runtime_fingerprint = resolve_runtime_fingerprint(&env, None).await;
+    let control_port = port_allocator::allocate()?;
+    let launch_plan = camoufox_runtime::build(
+        state.data_dir(),
+        &env,
+        &profile_dir,
+        control_port,
+        &runtime_fingerprint.locale,
+    )?;
+
+    let mut command = Command::new(&python_path);
+    let stdout_log = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&launch_plan.log_path)?;
+    let stderr_log = stdout_log.try_clone()?;
+    command
+        .arg(&launch_plan.worker_script_path)
+        .arg(&launch_plan.profile_json_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log));
+    configure_browser_process(&mut command);
+    if let Some(timezone_id) = &runtime_fingerprint.timezone_id {
+        command.env("TZ", timezone_id);
+    }
+
+    let mut child = command.spawn().map_err(|err| {
+        AppError::new(
+            "camoufox_start_failed",
+            format!("Camoufox failed to start: {err}"),
+        )
+        .details(json!({
+            "pythonPath": python_path,
+            "workerScript": launch_plan.worker_script_path,
+            "profileJson": launch_plan.profile_json_path,
+            "logPath": launch_plan.log_path,
+        }))
+        .retryable(true)
+    })?;
+    let pid = child.id();
+    wait_for_camoufox_ready(&mut child, control_port, &launch_plan.log_path).await?;
+    profile_manager::write_lock(state.data_dir(), &env.id, pid, control_port)?;
+    reap_browser_child_on_exit(child);
+
+    let now = Utc::now().to_rfc3339();
+    let session = BrowserSession {
+        environment_id: env.id.clone(),
+        pid,
+        cdp_port: control_port,
+        websocket_url: Some(format!("camoufox://127.0.0.1:{control_port}")),
+        started_at: now.clone(),
+        profile_dir: profile_dir_text,
+    };
+    state.sessions().upsert(session);
+    environment_repo::upsert_session_record(
+        state.db(),
+        &BrowserSessionRecord {
+            environment_id: env.id.clone(),
+            pid,
+            cdp_port: control_port,
+            websocket_url: Some(format!("camoufox://127.0.0.1:{control_port}")),
+            profile_dir: env.profile_dir,
+            started_at: now.clone(),
+            last_seen_at: now,
+        },
+    )?;
+
+    Ok(EnvironmentRuntimeStatus {
+        environment_id: env.id,
+        status: RuntimeStatus::Running,
+        pid: Some(pid),
+        cdp_port: Some(control_port),
+        message: Some("Camoufox runtime started".to_string()),
+    })
+}
+
+async fn wait_for_camoufox_ready(
+    child: &mut std::process::Child,
+    control_port: u16,
+    log_path: &Path,
+) -> AppResult<()> {
+    for _ in 0..90 {
+        if runtime_page::camoufox_ping(control_port).await {
+            return Ok(());
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(AppError::new(
+                "camoufox_start_failed",
+                format!("Camoufox worker exited before it was ready: {status}"),
+            )
+            .details(json!({
+                "controlPort": control_port,
+                "logPath": log_path,
+                "logTail": read_log_tail(log_path),
+            }))
+            .retryable(true));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    Err(AppError::new(
+        "camoufox_start_failed",
+        "Timed out waiting for Camoufox to become ready",
+    )
+    .details(json!({
+        "controlPort": control_port,
+        "logPath": log_path,
+        "logTail": read_log_tail(log_path),
+    }))
+    .retryable(true))
+}
+
+fn read_log_tail(path: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let max_chars = 8000;
+    let mut chars = text.chars().rev().take(max_chars).collect::<Vec<_>>();
+    chars.reverse();
+    chars.into_iter().collect()
+}
+
 async fn wait_for_process_exit(pid: u32) -> bool {
     for _ in 0..20 {
         if !process_manager::pid_alive(pid) {
@@ -416,9 +564,9 @@ pub async fn get_environment_statuses(
         let lock = profile_manager::read_lock(state.data_dir(), &env.id)?;
 
         let status = if let Some(session) = session {
-            status_from_pid_and_cdp(&env.id, session.pid, session.cdp_port).await
+            status_from_pid_and_runtime(&env, session.pid, session.cdp_port).await
         } else if let Some(record) = record {
-            status_from_pid_and_cdp(&env.id, record.pid, record.cdp_port).await
+            status_from_pid_and_runtime(&env, record.pid, record.cdp_port).await
         } else if let Some(lock) = lock {
             if process_manager::pid_alive(lock.pid) {
                 EnvironmentRuntimeStatus {
@@ -1170,35 +1318,56 @@ fn cleanup_environment_files_best_effort(state: &AppState, id: &str, artifact_di
     }
 }
 
-async fn status_from_pid_and_cdp(
-    environment_id: &str,
+async fn status_from_pid_and_runtime(
+    env: &Environment,
     pid: u32,
-    cdp_port: u16,
+    runtime_port: u16,
 ) -> EnvironmentRuntimeStatus {
     if !process_manager::pid_alive(pid) {
         return EnvironmentRuntimeStatus {
-            environment_id: environment_id.to_string(),
+            environment_id: env.id.clone(),
             status: RuntimeStatus::Crashed,
             pid: Some(pid),
-            cdp_port: Some(cdp_port),
+            cdp_port: Some(runtime_port),
             message: Some("Process does not exist".to_string()),
         };
     }
 
-    if cdp_client::ping(cdp_port).await {
+    if matches!(env.browser_kind, BrowserKind::Camoufox) {
+        if runtime_page::camoufox_ping(runtime_port).await {
+            return EnvironmentRuntimeStatus {
+                environment_id: env.id.clone(),
+                status: RuntimeStatus::Running,
+                pid: Some(pid),
+                cdp_port: Some(runtime_port),
+                message: Some("Camoufox control bridge is available".to_string()),
+            };
+        }
+        return EnvironmentRuntimeStatus {
+            environment_id: env.id.clone(),
+            status: RuntimeStatus::Unknown,
+            pid: Some(pid),
+            cdp_port: Some(runtime_port),
+            message: Some(
+                "Process exists, but Camoufox control bridge is not available yet".to_string(),
+            ),
+        };
+    }
+
+    if cdp_client::ping(runtime_port).await {
         EnvironmentRuntimeStatus {
-            environment_id: environment_id.to_string(),
+            environment_id: env.id.clone(),
             status: RuntimeStatus::Running,
             pid: Some(pid),
-            cdp_port: Some(cdp_port),
+            cdp_port: Some(runtime_port),
             message: None,
         }
     } else {
         EnvironmentRuntimeStatus {
-            environment_id: environment_id.to_string(),
+            environment_id: env.id.clone(),
             status: RuntimeStatus::Unknown,
             pid: Some(pid),
-            cdp_port: Some(cdp_port),
+            cdp_port: Some(runtime_port),
             message: Some("Process exists, but CDP is not available yet".to_string()),
         }
     }

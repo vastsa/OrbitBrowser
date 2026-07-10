@@ -91,7 +91,7 @@ pub async fn grant_geolocation_permission(port: u16, target_url: &str) -> AppRes
     let mut browser_session = BrowserSession::connect(port).await?;
     browser_session
         .grant_geolocation_permission(target_url)
-        .await;
+        .await?;
     Ok(())
 }
 
@@ -249,18 +249,13 @@ impl BrowserSession {
         Ok(Self { socket, next_id: 1 })
     }
 
-    async fn grant_geolocation_permission(&mut self, target_url: &str) {
+    async fn grant_geolocation_permission(&mut self, target_url: &str) -> AppResult<()> {
         let mut params = json!({ "permissions": ["geolocation"] });
         if let Some(origin) = target_origin(target_url) {
             params["origin"] = json!(origin);
         }
-        if let Err(err) = self.call("Browser.grantPermissions", params).await {
-            tracing::warn!(
-                target_url,
-                error = %err,
-                "Failed to grant geolocation permission"
-            );
-        }
+        self.call("Browser.grantPermissions", params).await?;
+        Ok(())
     }
 
     async fn call(&mut self, method: &str, params: Value) -> AppResult<Value> {
@@ -406,9 +401,17 @@ async fn apply_to_existing_targets(
                 }
                 if let Some(geolocation) = overrides.geolocation.as_ref() {
                     if let Some(browser_session) = browser_session.as_mut() {
-                        browser_session
+                        if let Err(err) = browser_session
                             .grant_geolocation_permission(&target.url)
-                            .await;
+                            .await
+                        {
+                            tracing::warn!(
+                                target_id = target.id,
+                                target_url = target.url,
+                                error = %err,
+                                "Failed to grant geolocation permission"
+                            );
+                        }
                     }
                     if let Err(err) = session.set_geolocation(geolocation).await {
                         tracing::warn!(

@@ -1,4 +1,4 @@
-export type BrowserKind = "chrome" | "chromium";
+export type BrowserKind = "chrome" | "camoufox";
 
 export type EnvironmentMode = "standard" | "custom";
 
@@ -33,6 +33,14 @@ export interface AppError {
   message: string;
   details?: Record<string, unknown>;
   retryable?: boolean;
+}
+
+export interface CamoufoxDetectionResult {
+  found: boolean;
+  python_path?: string | null;
+  version?: string | null;
+  searched_paths: string[];
+  error?: string | null;
 }
 
 export interface ProxyConfig {

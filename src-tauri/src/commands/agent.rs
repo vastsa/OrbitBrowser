@@ -1,11 +1,12 @@
 use crate::app_state::AppState;
-use crate::browser::cdp_client::CdpPage;
+use crate::browser::runtime_page::BrowserPage;
 use crate::commands::environments::start_environment_inner_headed;
 use crate::domain::agent::{
     AgentArtifactContent, AgentArtifactRef, AgentBrowserActionInput, AgentHistorySession,
     AgentHistorySnapshot, AgentRecordingEvent, AgentRecordingSummary, ReadAgentArtifactInput,
     SaveAgentArtifactInput, SaveAgentHistoryInput,
 };
+use crate::domain::environment::BrowserKind;
 use crate::errors::{AppError, AppResult};
 use crate::storage::environment_repo;
 use chrono::Utc;
@@ -553,16 +554,20 @@ pub fn agent_get_browser_recording(environment_id: String) -> AppResult<AgentRec
     Ok(summary(&environment_id, &handle, true, None))
 }
 
-async fn page_for_environment(state: &AppState, environment_id: &str) -> AppResult<CdpPage> {
+async fn page_for_environment(state: &AppState, environment_id: &str) -> AppResult<BrowserPage> {
     let status = start_environment_inner_headed(state, environment_id.to_string()).await?;
     let cdp_port = status.cdp_port.ok_or_else(|| {
         AppError::new(
-            "cdp_connect_failed",
-            "Environment is running but no CDP port is available",
+            "cdp_unsupported",
+            "This environment is running without a browser control endpoint.",
         )
     })?;
     let env = environment_repo::get(state.db(), environment_id)?;
-    CdpPage::connect(cdp_port, env.start_url.as_deref()).await
+    if matches!(env.browser_kind, BrowserKind::Camoufox) {
+        BrowserPage::connect_camoufox(cdp_port).await
+    } else {
+        BrowserPage::connect_cdp(cdp_port, env.start_url.as_deref()).await
+    }
 }
 
 fn required_option(value: Option<String>, name: &str) -> AppResult<String> {

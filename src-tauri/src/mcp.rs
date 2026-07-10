@@ -1,14 +1,14 @@
 use crate::app_state::AppState;
 use crate::automation::{deno_runtime, task_runner};
-use crate::browser::cdp_client::CdpPage;
 use crate::browser::chrome_locator;
+use crate::browser::runtime_page::BrowserPage;
 use crate::commands::diagnostics::{
     cleanup_stale_sessions_inner, cleanup_temp_files_inner, get_diagnostics_inner,
 };
 use crate::commands::environments::{
     delete_environment_inner, start_environment_inner, stop_environment_inner,
 };
-use crate::domain::environment::SaveEnvironmentInput;
+use crate::domain::environment::{BrowserKind, SaveEnvironmentInput};
 use crate::domain::run::{RunTaskInput, TaskRun, TaskRunStatus};
 use crate::domain::settings::SaveSettingsInput;
 use crate::domain::task::{SaveTaskInput, ValidateTaskScriptResult};
@@ -533,7 +533,7 @@ fn validate_task_script(script: &str) -> ValidateTaskScriptResult {
     }
 }
 
-async fn page_for_environment(state: &AppState, arguments: &Value) -> AppResult<CdpPage> {
+async fn page_for_environment(state: &AppState, arguments: &Value) -> AppResult<BrowserPage> {
     let environment_id = required_str(arguments, "environment_id")?;
     let status = start_environment_inner(state, environment_id.to_string()).await?;
     let cdp_port = status.cdp_port.ok_or_else(|| {
@@ -543,7 +543,11 @@ async fn page_for_environment(state: &AppState, arguments: &Value) -> AppResult<
         )
     })?;
     let env = environment_repo::get(state.db(), environment_id)?;
-    CdpPage::connect(cdp_port, env.start_url.as_deref()).await
+    if matches!(env.browser_kind, BrowserKind::Camoufox) {
+        BrowserPage::connect_camoufox(cdp_port).await
+    } else {
+        BrowserPage::connect_cdp(cdp_port, env.start_url.as_deref()).await
+    }
 }
 
 fn validate_script(script: &str) -> AppResult<()> {
@@ -656,7 +660,7 @@ fn tools() -> Vec<Value> {
                     "group_id": { "type": ["string", "null"] },
                     "tags": { "type": "array", "items": { "type": "string" } },
                     "notes": { "type": ["string", "null"] },
-                    "browser_kind": { "type": "string", "enum": ["chrome", "chromium"] },
+                    "browser_kind": { "type": "string", "enum": ["chrome", "camoufox"] },
                     "chrome_path_override": { "type": ["string", "null"] },
                     "proxy_config": { "type": "object" },
                     "locale": { "type": "string" },

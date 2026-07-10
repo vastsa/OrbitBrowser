@@ -4,6 +4,7 @@ import type {
   AppError,
   AutomationTask,
   AutomationTaskDraft,
+  CamoufoxDetectionResult,
   ChromeDetectionResult,
   Diagnostics,
   Environment,
@@ -65,6 +66,9 @@ export const COMMANDS = {
   saveSettings: "save_settings",
   detectChrome: "detect_chrome",
   validateChromePath: "validate_chrome_path",
+  detectCamoufox: "detect_camoufox",
+  validateCamoufoxPythonPath: "validate_camoufox_python_path",
+  installCamoufox: "install_camoufox",
   openDataDir: "open_data_dir",
   getDiagnostics: "get_diagnostics",
   cleanupStaleSessions: "cleanup_stale_sessions",
@@ -336,6 +340,15 @@ function mockInvoke<TResult>(
         path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         version: "Chrome 126",
         searched_paths: [],
+      } as TResult;
+    case COMMANDS.detectCamoufox:
+    case COMMANDS.validateCamoufoxPythonPath:
+    case COMMANDS.installCamoufox:
+      return {
+        found: true,
+        python_path: "/usr/bin/python3",
+        version: "0.4.11",
+        searched_paths: ["/usr/bin/python3"],
       } as TResult;
     case COMMANDS.agentBrowserAction:
       return {
@@ -697,6 +710,18 @@ export const browserApi = {
 
   validateChromePath: (path: string) =>
     invokeCommand<ChromeDetectionResult>(COMMANDS.validateChromePath, { path }),
+
+  detectCamoufox: () =>
+    invokeCommand<CamoufoxDetectionResult>(COMMANDS.detectCamoufox),
+
+  validateCamoufoxPythonPath: (path: string) =>
+    invokeCommand<CamoufoxDetectionResult>(
+      COMMANDS.validateCamoufoxPythonPath,
+      { path },
+    ),
+
+  installCamoufox: () =>
+    invokeCommand<CamoufoxDetectionResult>(COMMANDS.installCamoufox),
 
   openDataDir: () => invokeCommand<void>(COMMANDS.openDataDir),
 

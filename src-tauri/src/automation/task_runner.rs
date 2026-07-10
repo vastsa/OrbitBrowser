@@ -193,8 +193,8 @@ async fn resolve_cdp_port(
     let status = start_environment_inner(state, environment_id.to_string()).await?;
     status.cdp_port.ok_or_else(|| {
         AppError::new(
-            "cdp_connect_failed",
-            "Browser started but no CDP port is available",
+            "browser_control_unavailable",
+            "Browser started but no control port is available",
         )
     })
 }
@@ -325,7 +325,7 @@ mod tests {
                 device_scale_factor: 1.0,
                 environment_mode: EnvironmentMode::Standard,
                 seed: None,
-                headless: false,
+                headless: true,
                 start_url: Some("about:blank".to_string()),
             },
         )?;

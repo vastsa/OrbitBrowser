@@ -1,10 +1,11 @@
 use crate::app_state::AppState;
 use crate::automation::cancellation::CancellationToken;
 use crate::automation::permissions::TaskPermissions;
-use crate::browser::cdp_client::{CdpPage, PageSnapshot};
+use crate::browser::cdp_client::PageSnapshot;
+use crate::browser::runtime_page::BrowserPage;
 use crate::browser::timezone_controller;
 use crate::domain::artifact::RunArtifact;
-use crate::domain::environment::Environment;
+use crate::domain::environment::{BrowserKind, Environment};
 use crate::domain::run::{RunLog, TaskRun};
 use crate::errors::{AppError, AppResult};
 use crate::storage::{artifact_repo, log_repo};
@@ -45,7 +46,7 @@ struct ScriptRuntimeState {
     run: TaskRun,
     environment: Environment,
     permissions: TaskPermissions,
-    page: Option<CdpPage>,
+    page: Option<BrowserPage>,
     cdp_port: u16,
     artifacts_dir: PathBuf,
     cancellation: CancellationToken,
@@ -115,7 +116,7 @@ async fn execute_script_on_local_runtime(input: ScriptRuntimeInput) -> AppResult
     } = input;
 
     let env_json = environment_json(&environment);
-    let mut page = CdpPage::connect(cdp_port, environment.start_url.as_deref()).await?;
+    let mut page = connect_runtime_page(&environment, cdp_port).await?;
     apply_environment_overrides(&mut page, &environment).await?;
     let context = ScriptRuntimeContext {
         inner: Arc::new(Mutex::new(ScriptRuntimeState {
@@ -188,7 +189,7 @@ async fn execute_script_on_local_runtime(input: ScriptRuntimeInput) -> AppResult
 }
 
 async fn apply_environment_overrides(
-    page: &mut CdpPage,
+    page: &mut BrowserPage,
     environment: &Environment,
 ) -> AppResult<()> {
     let timezone_id = page_timezone_id(environment);
@@ -197,7 +198,7 @@ async fn apply_environment_overrides(
 }
 
 async fn apply_page_overrides(
-    page: &mut CdpPage,
+    page: &mut BrowserPage,
     timezone_id: Option<&str>,
     geolocation: Option<(f64, f64, f64)>,
 ) -> AppResult<()> {
@@ -209,6 +210,14 @@ async fn apply_page_overrides(
             .await?;
     }
     Ok(())
+}
+
+async fn connect_runtime_page(environment: &Environment, port: u16) -> AppResult<BrowserPage> {
+    if matches!(environment.browser_kind, BrowserKind::Camoufox) {
+        BrowserPage::connect_camoufox(port).await
+    } else {
+        BrowserPage::connect_cdp(port, environment.start_url.as_deref()).await
+    }
 }
 
 fn page_timezone_id(environment: &Environment) -> Option<String> {
@@ -247,15 +256,20 @@ async fn op_orbit_page_goto(
     guard
         .append_log("info", &format!("Opening page: {url}"), None)
         .map_err(js_error)?;
+    let timezone_id = page_timezone_id(&guard.environment);
+    let geolocation = page_geolocation(&guard.environment);
+    if geolocation.is_some() && !matches!(guard.environment.browser_kind, BrowserKind::Camoufox) {
+        timezone_controller::grant_geolocation_permission(guard.cdp_port, &url)
+            .await
+            .map_err(js_error)?;
+    }
     guard
         .page_mut()
         .map_err(js_error)?
         .goto(&url, Duration::from_millis(timeout))
         .await
         .map_err(js_error)?;
-    let timezone_id = page_timezone_id(&guard.environment);
-    let geolocation = page_geolocation(&guard.environment);
-    if geolocation.is_some() {
+    if geolocation.is_some() && !matches!(guard.environment.browser_kind, BrowserKind::Camoufox) {
         timezone_controller::grant_geolocation_permission(guard.cdp_port, &url)
             .await
             .map_err(js_error)?;
@@ -462,7 +476,7 @@ async fn op_orbit_sleep(
 }
 
 impl ScriptRuntimeState {
-    fn page_mut(&mut self) -> AppResult<&mut CdpPage> {
+    fn page_mut(&mut self) -> AppResult<&mut BrowserPage> {
         self.page
             .as_mut()
             .ok_or_else(|| AppError::new("script_runtime_error", "Page context is unavailable"))

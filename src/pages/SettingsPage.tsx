@@ -98,6 +98,14 @@ export function SettingsPage() {
     mutationFn: browserApi.validateChromePath,
   });
 
+  const detectCamoufoxMutation = useMutation({
+    mutationFn: browserApi.detectCamoufox,
+  });
+
+  const installCamoufoxMutation = useMutation({
+    mutationFn: browserApi.installCamoufox,
+  });
+
   const openDataDirMutation = useMutation({
     mutationFn: browserApi.openDataDir,
   });
@@ -181,6 +189,8 @@ export function SettingsPage() {
           saveMutation.error ||
           detectMutation.error ||
           validateChromeMutation.error ||
+          detectCamoufoxMutation.error ||
+          installCamoufoxMutation.error ||
           openDataDirMutation.error) && (
           <div className="m-5 rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
             {errorMessage(
@@ -188,6 +198,8 @@ export function SettingsPage() {
                 saveMutation.error ??
                 detectMutation.error ??
                 validateChromeMutation.error ??
+                detectCamoufoxMutation.error ??
+                installCamoufoxMutation.error ??
                 openDataDirMutation.error,
             )}
           </div>
@@ -216,6 +228,67 @@ export function SettingsPage() {
                 ))}
               </SelectField>
             </div>
+          </section>
+
+          <section className="grid gap-4 p-5">
+            <div>
+              <h3 className="text-[15px] font-semibold text-ink-900">
+                {text.camoufox}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-ink-500">
+                {text.camoufoxHint}
+              </p>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <TextField
+                label={text.camoufoxPythonPath}
+                readOnly
+                value={
+                  (installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
+                    ?.python_path ?? ""
+                }
+              />
+              <div className="flex items-end">
+                <Button
+                  disabled={detectCamoufoxMutation.isPending}
+                  icon={<Search className="h-4 w-4" />}
+                  onClick={() => detectCamoufoxMutation.mutate()}
+                >
+                  {text.detectCamoufox}
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  disabled={installCamoufoxMutation.isPending}
+                  icon={<CheckCircle2 className="h-4 w-4" />}
+                  onClick={() => installCamoufoxMutation.mutate()}
+                >
+                  {text.installCamoufox}
+                </Button>
+              </div>
+            </div>
+
+            {detectCamoufoxMutation.data || installCamoufoxMutation.data ? (
+              <div
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  (installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
+                    ?.found
+                    ? "border-ok/20 bg-green-50 text-ok"
+                    : "border-warn/20 bg-amber-50 text-warn"
+                }`}
+              >
+                {(installCamoufoxMutation.data ?? detectCamoufoxMutation.data)
+                  ?.found
+                  ? format(text.detected, {
+                      version:
+                        (installCamoufoxMutation.data ??
+                          detectCamoufoxMutation.data)?.version ?? "Camoufox",
+                    })
+                  : ((installCamoufoxMutation.data ??
+                      detectCamoufoxMutation.data)?.error ??
+                    text.camoufoxNotDetected)}
+              </div>
+            ) : null}
           </section>
 
           <section className="grid gap-4 p-5">

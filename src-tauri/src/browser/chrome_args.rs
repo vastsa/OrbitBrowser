@@ -196,6 +196,19 @@ fn write_profile_preferences(profile_dir: &Path, accept_language: &str) -> AppRe
         preferences["intl"] = json!({});
     }
     preferences["intl"]["accept_languages"] = json!(accept_language);
+    if !preferences
+        .get("profile")
+        .is_some_and(|value| value.is_object())
+    {
+        preferences["profile"] = json!({});
+    }
+    if !preferences["profile"]
+        .get("default_content_setting_values")
+        .is_some_and(|value| value.is_object())
+    {
+        preferences["profile"]["default_content_setting_values"] = json!({});
+    }
+    preferences["profile"]["default_content_setting_values"]["geolocation"] = json!(1);
     std::fs::write(
         preferences_path,
         serde_json::to_string_pretty(&preferences)?,

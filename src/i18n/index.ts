@@ -203,6 +203,11 @@ export const copy = {
         startUrl: "启动地址",
         chromePathOverride: "Chrome 路径覆盖",
         chromePathHint: "为空时使用应用设置中的 Chrome 路径。",
+        camoufoxPathOverride: "Camoufox Python 路径",
+        camoufoxPathHint:
+          "可选。填写能 import camoufox 的 Python 可执行文件；为空时自动检测 python3/python。",
+        camoufoxRuntimeHint:
+          "Camoufox 环境由 Orbit 启动和停止，支持代理、语言、时区、WebRTC 防护、持久 Profile 和自动化控制。",
         profileDir: "Profile 目录",
         profileHint: "为空时由应用自动创建隔离 Profile。",
         webRtcProtection: "启用 WebRTC 防泄漏",
@@ -364,6 +369,13 @@ export const copy = {
       validatePath: "校验路径",
       detected: "检测到 {{version}}",
       chromeNotDetected: "未检测到 Chrome",
+      camoufox: "Camoufox",
+      camoufoxHint:
+        "可选安装。Camoufox 环境用于更强的指纹 runtime，并支持 Orbit 自动化控制。",
+      detectCamoufox: "检测 Camoufox",
+      installCamoufox: "安装/更新 Camoufox",
+      camoufoxPythonPath: "Camoufox Python 路径",
+      camoufoxNotDetected: "未检测到 Camoufox",
       aigc: "AIGC 配置",
       aigcBaseUrl: "Base URL",
       aigcModel: "模型",
@@ -684,6 +696,11 @@ export const copy = {
         startUrl: "Start URL",
         chromePathOverride: "Chrome Path Override",
         chromePathHint: "Leave empty to use the Chrome path from app settings.",
+        camoufoxPathOverride: "Camoufox Python Path",
+        camoufoxPathHint:
+          "Optional. Use a Python executable that can import camoufox; leave empty to auto-detect python3/python.",
+        camoufoxRuntimeHint:
+          "Camoufox environments can be launched and stopped by Orbit with proxy, locale, timezone, WebRTC protection, persistent profiles, and automation control.",
         profileDir: "Profile Directory",
         profileHint: "Leave empty to let the app create an isolated profile.",
         webRtcProtection: "Enable WebRTC leak protection",
@@ -855,6 +872,13 @@ export const copy = {
       validatePath: "Validate Path",
       detected: "Detected {{version}}",
       chromeNotDetected: "Chrome not detected",
+      camoufox: "Camoufox",
+      camoufoxHint:
+        "Optional install. Camoufox environments provide a stronger fingerprint runtime with Orbit automation control.",
+      detectCamoufox: "Detect Camoufox",
+      installCamoufox: "Install/Update Camoufox",
+      camoufoxPythonPath: "Camoufox Python Path",
+      camoufoxNotDetected: "Camoufox not detected",
       aigc: "AIGC Configuration",
       aigcBaseUrl: "Base URL",
       aigcModel: "Model",

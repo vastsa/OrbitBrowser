@@ -344,13 +344,13 @@ fn validate_input(input: &SaveEnvironmentInput) -> AppResult<()> {
 fn browser_kind_to_str(value: &BrowserKind) -> &'static str {
     match value {
         BrowserKind::Chrome => "chrome",
-        BrowserKind::Chromium => "chromium",
+        BrowserKind::Camoufox => "camoufox",
     }
 }
 
 fn parse_browser_kind(value: &str) -> BrowserKind {
     match value {
-        "chromium" => BrowserKind::Chromium,
+        "camoufox" => BrowserKind::Camoufox,
         _ => BrowserKind::Chrome,
     }
 }
