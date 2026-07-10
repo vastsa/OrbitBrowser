@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+- Added Camoufox environments with managed installation, browser runtime
+  downloads, launch controls, and Orbit automation support.
+- Added visible Camoufox installation stages, persisted Python path detection,
+  automatic validation, and global runtime path fallback.
+- Kept IP-derived timezone, locale, and geolocation overrides alive across
+  navigation and CDP reconnects, with watcher lifecycle cleanup on shutdown.
+- Preserved Chrome's native User-Agent, Client Hints, platform metadata, and
+  reduced version format by default to improve fingerprint consistency.
+- Added task search, pagination, table navigation, and refined desktop context
+  menu behavior.
+- Refined the desktop interface, startup splash, theme guidance, and Windows
+  Chrome detection behavior.
+
 ## 0.1.1
 
 - Added IP-adaptive locale, timezone, geolocation, and browser language handling for environments.
