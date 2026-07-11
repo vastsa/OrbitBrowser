@@ -31,6 +31,14 @@
 
 ---
 
+## 产品预览
+
+<p align="center">
+  <img src="docs/assets/orbit-browser-app.png" alt="Orbit Browser 在 macOS 上运行，集中展示隔离环境、代理状态与浏览器运行控制" width="100%" />
+</p>
+
+Orbit Browser 在 macOS 上真实运行的界面，集中展示隔离环境、代理状态与浏览器运行控制。
+
 ## 为什么需要 Orbit Browser？
 
 浏览器自动化很容易变成一堆难以维护的脚本、临时 Profile、代理参数、截图、过期状态和散落日志。

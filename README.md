@@ -31,6 +31,15 @@
 
 ---
 
+## Product Preview
+
+<p align="center">
+  <img src="docs/assets/orbit-browser-app.png" alt="Orbit Browser running on macOS with isolated environments, proxy status, and runtime controls" width="100%" />
+</p>
+
+Orbit Browser running on macOS, with isolated environments, proxy status, and
+browser runtime controls in one local desktop control plane.
+
 ## Why Orbit Browser?
 
 Modern browser automation often becomes a pile of scripts, temporary profiles,
