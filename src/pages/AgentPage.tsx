@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowUp,
+  AtSign,
   Bot,
   ChevronDown,
   CircleStop,
@@ -12,11 +14,11 @@ import {
   Network,
   Plus,
   Radio,
-  Send,
   Settings2,
   SquareTerminal,
   Trash2,
   User,
+  X,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -1108,6 +1110,7 @@ export function AgentPage() {
   const [isResolvingMention, setIsResolvingMention] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [activeMention, setActiveMention] = useState<{ atIndex: number; query: string } | null>(null);
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [attachedReferences, setAttachedReferences] = useState<AttachedReference[]>([]);
   const [sidePanelHeights, setSidePanelHeights] = useState<SidePanelHeights>({
     sessions: 260,
@@ -1373,6 +1376,32 @@ export function AgentPage() {
       settingsQuery.data?.aigc_api_key?.trim(),
   );
   const ready = Boolean(selectedEnvironment && aigcConfigured);
+  const canSubmit = Boolean(
+    ready &&
+      sessionId &&
+      !isHistoryLoading &&
+      !isResolvingMention &&
+      !isRunning &&
+      input.trim(),
+  );
+
+  const resizeComposer = () => {
+    const element = inputRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    const nextHeight = Math.min(element.scrollHeight, 180);
+    element.style.height = `${nextHeight}px`;
+    element.style.overflowY = element.scrollHeight > 180 ? "auto" : "hidden";
+  };
+
+  useEffect(() => {
+    resizeComposer();
+  }, [input]);
+
+  useEffect(() => {
+    if (!ready || isHistoryLoading) return;
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [isHistoryLoading, ready, sessionId]);
 
   useEffect(() => {
     const environments = environmentsQuery.data;
@@ -1404,6 +1433,16 @@ export function AgentPage() {
     agentRuntimeRefs.environmentId = environmentId;
     window.localStorage.setItem(LAST_AGENT_ENVIRONMENT_KEY, environmentId);
   }, [environmentId, selectedEnvironment?.id]);
+
+  useEffect(() => {
+    setInput((current) =>
+      attachedReferences
+        .reduce((next, reference) => next.replace(reference.label, ""), current)
+        .replace(/[ \t]{2,}/g, " "),
+    );
+    setAttachedReferences([]);
+    setActiveMention(null);
+  }, [environmentId]);
 
   useEffect(() => {
     if (!environmentId || !sessionId || typeof window === "undefined") return;
@@ -1986,7 +2025,7 @@ ${preview}`,
   const send = async () => {
     const content = input.trim();
     const settings = settingsQuery.data;
-    if (!content || !settings || !ready || isRunning) return;
+    if (!content || !settings || !canSubmit) return;
 
     const references = attachedReferences;
     const referenceContext = references.length
@@ -2003,6 +2042,7 @@ ${preview}`,
     setAttachedReferences([]);
     setError(null);
     setIsRunning(true);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
     agentRuntimeRefs.stopped = false;
     const runId = agentRuntimeRefs.runId + 1;
     agentRuntimeRefs.runId = runId;
@@ -2053,6 +2093,7 @@ ${preview}`,
     agentRuntimeRefs.charQueue = [];
     finalizeTrailingEmptyAssistant(text.stoppedByUser);
     setIsRunning(false);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const newSession = () => {
@@ -2065,8 +2106,12 @@ ${preview}`,
     agentRuntimeRefs.sessionId = nextSessionId;
     setSessionId(nextSessionId);
     resetRuntimeConversation();
+    setInput("");
+    setAttachedReferences([]);
+    setActiveMention(null);
     setError(null);
     setContext(null);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const switchSession = (nextSessionId: string) => {
@@ -2074,6 +2119,9 @@ ${preview}`,
     agentRuntimeRefs.charQueue = [];
     agentRuntimeRefs.environmentId = environmentId;
     agentRuntimeRefs.sessionId = nextSessionId;
+    setInput("");
+    setAttachedReferences([]);
+    setActiveMention(null);
     setSessionId(nextSessionId);
   };
 
@@ -2191,10 +2239,48 @@ ${preview}`,
       .slice(0, 10);
   }, [activeMention, mentionSuggestions]);
 
+  useEffect(() => {
+    setSelectedMentionIndex(0);
+  }, [activeMention?.atIndex, activeMention?.query]);
+
+  useEffect(() => {
+    if (!activeMention) return;
+    document
+      .getElementById(`agent-mention-option-${selectedMentionIndex}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeMention, selectedMentionIndex]);
+
   const updateInputWithMentionState = (value: string, cursor: number) => {
     setInput(value);
+    setAttachedReferences((current) =>
+      current.filter((reference) => value.includes(reference.label)),
+    );
     setMentionCursor(cursor);
     setActiveMention(getActiveAtMention(value, cursor));
+  };
+
+  const removeAttachedReference = (reference: AttachedReference) => {
+    setAttachedReferences((current) => current.filter((item) => item.id !== reference.id));
+    setInput((current) => current.replace(reference.label, "").replace(/[ \t]{2,}/g, " "));
+    setActiveMention(null);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const openMentionPicker = () => {
+    if (activeMention) {
+      inputRef.current?.focus();
+      return;
+    }
+
+    const cursor = inputRef.current?.selectionStart ?? input.length;
+    const prefix = cursor > 0 && !/\s/.test(input[cursor - 1] ?? "") ? " @" : "@";
+    const nextInput = `${input.slice(0, cursor)}${prefix}${input.slice(cursor)}`;
+    const nextCursor = cursor + prefix.length;
+    updateInputWithMentionState(nextInput, nextCursor);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   const insertMentionReference = async (suggestion: MentionSuggestion) => {
@@ -2549,23 +2635,29 @@ log.info("message");
             )}
           </div>
 
-          <div className="border-t border-line bg-white p-3">
-            {error ? <div className="mb-2 rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">{error}</div> : null}
-            <div className="mx-auto min-w-0 max-w-4xl overflow-hidden rounded-xl border border-line bg-white transition-colors duration-200 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10">
+          <div className="border-t border-line bg-white px-4 pb-4 pt-3">
+            {error ? <div aria-live="assertive" className="mb-2 rounded-lg border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger" role="alert">{error}</div> : null}
+            <div className="relative mx-auto min-w-0 max-w-4xl">
               {activeMention ? (
-                <div className="agent-mention-popover min-w-0 max-w-full overflow-hidden border-b border-line bg-ink-50 px-2 py-1.5">
+                <div className="agent-mention-popover absolute bottom-[calc(100%+0.5rem)] left-0 right-0 z-30 min-w-0 max-w-full overflow-hidden rounded-xl border border-line bg-white p-2 shadow-panel">
                   <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] leading-4 text-ink-500">
-                    <span>{text.atCommandHint}</span>
+                    <span className="truncate">{text.referencePickerTitle}</span>
                     {isResolvingMention ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   </div>
                   {filteredMentionSuggestions.length > 0 ? (
-                    <div className="grid min-w-0 gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
-                      {filteredMentionSuggestions.map((suggestion) => (
+                    <div className="grid min-w-0 gap-0.5 overflow-y-auto overflow-x-hidden pr-1" id="agent-mention-list" role="listbox">
+                      {filteredMentionSuggestions.map((suggestion, index) => (
                         <button
-                          className="control-focus flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-60"
+                          aria-selected={index === selectedMentionIndex}
+                          className={`control-focus flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                            index === selectedMentionIndex ? "bg-ink-100" : "hover:bg-ink-50"
+                          }`}
                           disabled={isResolvingMention}
+                          id={`agent-mention-option-${index}`}
                           key={suggestion.id}
+                          onMouseEnter={() => setSelectedMentionIndex(index)}
                           onClick={() => void insertMentionReference(suggestion)}
+                          role="option"
                           type="button"
                         >
                           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-brand-600">
@@ -2597,91 +2689,151 @@ log.info("message");
                   )}
                 </div>
               ) : null}
-              {attachedReferences.length > 0 ? (
-                <div className="flex min-w-0 flex-wrap gap-1.5 border-b border-line px-2 py-1.5">
-                  {attachedReferences.map((reference) => (
-                    <span
-                      className="inline-flex max-w-full items-center gap-1 rounded-md bg-ink-50 px-2 py-1 text-[11px] font-medium leading-4 text-ink-700"
-                      key={reference.id}
-                      title={reference.detail}
-                    >
-                      <span className="truncate">{reference.label}</span>
-                      <button
-                        className="rounded px-0.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600"
-                        onClick={() => setAttachedReferences((current) => current.filter((item) => item.id !== reference.id))}
-                        type="button"
+              <div className="agent-composer overflow-hidden">
+                {attachedReferences.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap gap-1.5 px-3 pb-0 pt-3">
+                    {attachedReferences.map((reference) => (
+                      <span
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line bg-ink-50 py-1 pl-2.5 pr-1.5 text-[11px] font-medium leading-4 text-ink-700"
+                        key={reference.id}
+                        title={reference.detail}
                       >
-                        ×
-                      </button>
+                        <AtSign className="h-3 w-3 shrink-0 text-brand-600" />
+                        <span className="truncate">{reference.label.replace(/^@/, "")}</span>
+                        <button
+                          aria-label={`${text.removeReference}: ${reference.label}`}
+                          className="control-focus flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-900"
+                          onClick={() => removeAttachedReference(reference)}
+                          title={text.removeReference}
+                          type="button"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <textarea
+                  aria-activedescendant={activeMention && filteredMentionSuggestions.length > 0 ? `agent-mention-option-${selectedMentionIndex}` : undefined}
+                  aria-autocomplete="list"
+                  aria-label={text.composerLabel}
+                  aria-multiline="true"
+                  aria-expanded={Boolean(activeMention)}
+                  aria-controls={activeMention ? "agent-mention-list" : undefined}
+                  aria-busy={isResolvingMention}
+                  ref={inputRef}
+                  readOnly={isResolvingMention}
+                  role="combobox"
+                  className="agent-composer-input w-full max-w-full resize-none border-0 bg-transparent px-4 pb-2 pt-3.5 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
+                  placeholder={text.placeholder}
+                  rows={1}
+                  value={input}
+                  onCompositionEnd={() => {
+                    composingRef.current = false;
+                    compositionEndedAtRef.current = Date.now();
+                  }}
+                  onCompositionStart={() => {
+                    composingRef.current = true;
+                  }}
+                  onChange={(event) => updateInputWithMentionState(event.target.value, event.target.selectionStart)}
+                  onClick={(event) => updateInputWithMentionState(event.currentTarget.value, event.currentTarget.selectionStart)}
+                  onSelect={(event) => updateInputWithMentionState(event.currentTarget.value, event.currentTarget.selectionStart)}
+                  onKeyDown={(event) => {
+                    const nativeEvent = event.nativeEvent as KeyboardEvent & {
+                      keyCode?: number;
+                      which?: number;
+                    };
+                    const isImeEnter =
+                      nativeEvent.isComposing ||
+                      composingRef.current ||
+                      nativeEvent.keyCode === 229 ||
+                      nativeEvent.which === 229 ||
+                      Date.now() - compositionEndedAtRef.current < 250;
+                    if (isImeEnter) return;
+                    if (event.key === "Escape" && activeMention) {
+                      event.preventDefault();
+                      setActiveMention(null);
+                      return;
+                    }
+                    if (activeMention && filteredMentionSuggestions.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                      event.preventDefault();
+                      const direction = event.key === "ArrowDown" ? 1 : -1;
+                      setSelectedMentionIndex((current) => (current + direction + filteredMentionSuggestions.length) % filteredMentionSuggestions.length);
+                      return;
+                    }
+                    if (activeMention && filteredMentionSuggestions.length > 0 && (event.key === "Home" || event.key === "End")) {
+                      event.preventDefault();
+                      setSelectedMentionIndex(event.key === "Home" ? 0 : filteredMentionSuggestions.length - 1);
+                      return;
+                    }
+                    if (event.key === "Enter" && activeMention && filteredMentionSuggestions[selectedMentionIndex]) {
+                      event.preventDefault();
+                      void insertMentionReference(filteredMentionSuggestions[selectedMentionIndex]);
+                      return;
+                    }
+                    if (event.key === "Tab" && activeMention && filteredMentionSuggestions[selectedMentionIndex]) {
+                      event.preventDefault();
+                      void insertMentionReference(filteredMentionSuggestions[selectedMentionIndex]);
+                      return;
+                    }
+                    if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey) {
+                      event.preventDefault();
+                      void send();
+                    }
+                  }}
+                />
+                <div className="flex min-h-12 items-center justify-between gap-3 px-2.5 pb-2.5 pt-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <button
+                      aria-label={text.addReference}
+                      className={`control-focus flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition-colors ${
+                        activeMention
+                          ? "border-brand-200 bg-brand-50 text-brand-600"
+                          : "border-line bg-transparent text-ink-600 hover:bg-ink-50 hover:text-ink-900"
+                      }`}
+                      onClick={openMentionPicker}
+                      title={text.addReference}
+                      type="button"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                    <div className="h-4 w-px bg-ink-200" />
+                    <span
+                      className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-ink-500"
+                      title={`${text.environment}: ${selectedEnvironment?.name ?? text.selectEnvironmentFirst}`}
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selectedEnvironment ? "bg-ok" : "bg-ink-400"}`} />
+                      <span className="max-w-48 truncate">{selectedEnvironment?.name ?? text.selectEnvironmentFirst}</span>
                     </span>
-                  ))}
+                    {attachedReferences.length > 0 ? (
+                      <span className="shrink-0 text-[11px] text-ink-500">
+                        {text.referenceCount.replace("{{count}}", String(attachedReferences.length))}
+                      </span>
+                    ) : null}
+                  </div>
+                  {isRunning ? (
+                    <button
+                      aria-label={text.stop}
+                      className="control-focus flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-danger text-white transition-colors hover:bg-red-700"
+                      onClick={stop}
+                      title={text.stop}
+                      type="button"
+                    >
+                      <CircleStop className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <button
+                      aria-label={text.send}
+                      className="control-focus flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink-900 text-white transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-400"
+                      onClick={send}
+                      disabled={!canSubmit}
+                      title={text.send}
+                      type="button"
+                    >
+                      <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
+                    </button>
+                  )}
                 </div>
-              ) : null}
-              <textarea
-                ref={inputRef}
-                className="min-h-20 w-full max-w-full resize-none border-0 bg-transparent px-4 py-3 text-sm leading-6 text-ink-900 outline-none placeholder:text-ink-500"
-                placeholder={text.placeholder}
-                rows={3}
-                value={input}
-                onCompositionEnd={() => {
-                  composingRef.current = false;
-                  compositionEndedAtRef.current = Date.now();
-                }}
-                onCompositionStart={() => {
-                  composingRef.current = true;
-                }}
-                onChange={(event) => updateInputWithMentionState(event.target.value, event.target.selectionStart)}
-                onClick={(event) => updateInputWithMentionState(input, event.currentTarget.selectionStart)}
-                onKeyDown={(event) => {
-                  const nativeEvent = event.nativeEvent as KeyboardEvent & {
-                    keyCode?: number;
-                    which?: number;
-                  };
-                  const isImeEnter =
-                    nativeEvent.isComposing ||
-                    composingRef.current ||
-                    nativeEvent.keyCode === 229 ||
-                    nativeEvent.which === 229 ||
-                    Date.now() - compositionEndedAtRef.current < 250;
-                  if (isImeEnter) return;
-                  if (event.key === "Escape" && activeMention) {
-                    event.preventDefault();
-                    setActiveMention(null);
-                    return;
-                  }
-                  if (event.key === "Enter" && activeMention && filteredMentionSuggestions[0]) {
-                    event.preventDefault();
-                    void insertMentionReference(filteredMentionSuggestions[0]);
-                    return;
-                  }
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-2">
-                <span className="truncate text-xs text-ink-500">{text.shortcutHint}</span>
-                {isRunning ? (
-                  <Button
-                    className="h-9 rounded-lg px-4 shadow-none"
-                    icon={<CircleStop className="h-4 w-4" />}
-                    onClick={stop}
-                    variant="danger"
-                  >
-                    {text.stop}
-                  </Button>
-                ) : (
-                  <Button
-                    className="h-9 rounded-lg px-4 shadow-none disabled:bg-ink-50 disabled:text-ink-500"
-                    icon={<Send className="h-4 w-4" />}
-                    onClick={send}
-                    disabled={!ready || !input.trim()}
-                    variant="primary"
-                  >
-                    {text.send}
-                  </Button>
-                )}
               </div>
             </div>
           </div>

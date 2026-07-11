@@ -108,6 +108,11 @@
   --task-search-min-width: 15rem;
 
   --agent-surface-bg: rgb(var(--color-white));
+  --agent-composer-bg: rgb(var(--color-white));
+  --agent-composer-border: rgb(var(--color-ink-300));
+  --agent-composer-shadow:
+    0 1px 2px rgb(var(--color-ink-900) / 0.06),
+    0 8px 24px rgb(var(--color-ink-900) / 0.05);
 
   --form-select-bg: rgb(var(--color-white));
   --form-select-fg: rgb(var(--color-ink-900));
@@ -835,6 +840,28 @@ textarea[data-code-editor="true"] {
     word-break: break-word;
   }
 
+  .agent-composer {
+    border: 1px solid var(--agent-composer-border);
+    border-radius: 0.875rem;
+    background: var(--agent-composer-bg);
+    box-shadow: var(--agent-composer-shadow);
+    transition:
+      border-color 160ms ease-out,
+      box-shadow 160ms ease-out;
+  }
+
+  .agent-composer:focus-within {
+    border-color: rgb(var(--color-ink-500));
+    box-shadow:
+      0 0 0 3px var(--focus-ring),
+      var(--agent-composer-shadow);
+  }
+
+  .agent-composer-input {
+    min-height: 3.75rem;
+    max-height: 11.25rem;
+  }
+
   .agent-mention-popover {
     max-height: min(14rem, 32vh);
   }
@@ -1113,6 +1140,11 @@ textarea[data-code-editor="true"] {
     --table-action-cell-selected-bg: rgb(var(--color-brand-900) / 0.3);
 
     --agent-surface-bg: rgb(var(--color-ink-900));
+    --agent-composer-bg: rgb(var(--color-ink-900));
+    --agent-composer-border: rgb(var(--color-ink-500) / 0.56);
+    --agent-composer-shadow:
+      0 1px 2px rgb(var(--color-black) / 0.28),
+      0 10px 28px rgb(var(--color-black) / 0.18);
 
     --form-select-bg: rgb(var(--color-ink-900) / 0.86);
     --form-select-fg: rgb(var(--color-ink-200));
