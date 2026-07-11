@@ -2,12 +2,22 @@
 
 ## Unreleased
 
+## 0.5.0
+
 - Aligned Chrome native language preferences, Intl locale, CDP timezone, and
   geolocation with the proxy exit IP while preserving native UA, platform, and
   font characteristics.
 - Removed Chrome locale, User-Agent, viewport, WebRTC, font, and JavaScript
   geolocation patching paths; retained the extended profile controls for
   Camoufox environments.
+- Added Camoufox target platform selection for environment-specific runtime
+  profiles.
+- Improved the agent message composer with context references, keyboard
+  navigation, automatic sizing, accessible states, and refined light/dark
+  styling.
+- Refined desktop window controls, environment actions, tables, form states,
+  and cross-platform installer packaging.
+- Added a real macOS application screenshot to the English and Chinese README.
 
 ## 0.4.1
 
