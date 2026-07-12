@@ -212,8 +212,60 @@ function mockInvoke<TResult>(
     case COMMANDS.deleteTask:
       mockTasks = mockTasks.filter((item) => item.id !== args?.id);
       return undefined as TResult;
-    case COMMANDS.validateTaskScript:
-      return { valid: true, errors: [], warnings: [] } as TResult;
+    case COMMANDS.validateTaskScript: {
+      const script = String(args?.script ?? "");
+      const trimmed = script.trim();
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      if (!trimmed) {
+        errors.push("Script cannot be empty");
+      } else {
+        const openBraces = (trimmed.match(/\{/g) ?? []).length;
+        const closeBraces = (trimmed.match(/\}/g) ?? []).length;
+        const openParens = (trimmed.match(/\(/g) ?? []).length;
+        const closeParens = (trimmed.match(/\)/g) ?? []).length;
+        const openBrackets = (trimmed.match(/\[/g) ?? []).length;
+        const closeBrackets = (trimmed.match(/\]/g) ?? []).length;
+        if (openBraces !== closeBraces) {
+          errors.push("Script braces are not balanced");
+        }
+        if (openParens !== closeParens) {
+          errors.push("Script parentheses are not balanced");
+        }
+        if (openBrackets !== closeBrackets) {
+          errors.push("Script brackets are not balanced");
+        }
+        if (/['"\`]$/.test(trimmed) === false) {
+          // no-op marker for future string checks
+        }
+        const lower = trimmed.toLowerCase();
+        const usesApi =
+          lower.includes("page.") ||
+          lower.includes("log.") ||
+          lower.includes("run.") ||
+          lower.includes("sleep(") ||
+          lower.includes("orbit.");
+        if (!usesApi) {
+          warnings.push(
+            "Script does not call page/log/run/sleep APIs; confirm this is intentional",
+          );
+        }
+        if (
+          lower.includes("page.") &&
+          !lower.includes("await page.") &&
+          !lower.includes("await orbit.page.")
+        ) {
+          warnings.push(
+            "page APIs are async; prefer `await page.xxx(...)` to avoid race conditions",
+          );
+        }
+      }
+      return {
+        valid: errors.length === 0,
+        errors,
+        warnings,
+      } as TResult;
+    }
     case COMMANDS.runTask:
       mockRuns = [
         {

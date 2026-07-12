@@ -43,11 +43,22 @@ export function TextField({
   hint,
   label,
   requiredMark,
+  spellCheck = false,
+  autoComplete = "off",
+  autoCorrect = "off",
+  autoCapitalize = "off",
   ...props
 }: TextFieldProps) {
   return (
     <FieldShell hint={hint} label={label} required={requiredMark}>
-      <input {...props} className={`${controlClass} ${className}`} />
+      <input
+        {...props}
+        autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
+        autoCorrect={autoCorrect}
+        className={`${controlClass} ${className}`}
+        spellCheck={spellCheck}
+      />
     </FieldShell>
   );
 }
@@ -118,13 +129,21 @@ export function TextareaField({
   hint,
   label,
   requiredMark,
+  spellCheck = false,
+  autoComplete = "off",
+  autoCorrect = "off",
+  autoCapitalize = "off",
   ...props
 }: TextareaFieldProps) {
   return (
     <FieldShell hint={hint} label={label} required={requiredMark}>
       <textarea
         {...props}
+        autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
+        autoCorrect={autoCorrect}
         className={`${controlClass} min-h-24 resize-y py-2.5 leading-5 ${className}`}
+        spellCheck={spellCheck}
       />
     </FieldShell>
   );

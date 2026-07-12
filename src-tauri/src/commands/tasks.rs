@@ -282,25 +282,18 @@ fn validate_script(script: &str) -> ValidateTaskScriptResult {
             warnings: Vec::new(),
         };
     }
+
     if let Err(err) = deno_runtime::validate_script_surface(trimmed) {
         return ValidateTaskScriptResult {
             valid: false,
             errors: vec![err.message],
-            warnings: Vec::new(),
+            warnings: deno_runtime::collect_script_warnings(trimmed),
         };
     }
-    let open_braces = trimmed.chars().filter(|ch| *ch == '{').count();
-    let close_braces = trimmed.chars().filter(|ch| *ch == '}').count();
-    if open_braces != close_braces {
-        return ValidateTaskScriptResult {
-            valid: false,
-            errors: vec!["Script braces are not balanced".to_string()],
-            warnings: Vec::new(),
-        };
-    }
+
     ValidateTaskScriptResult {
         valid: true,
         errors: Vec::new(),
-        warnings: Vec::new(),
+        warnings: deno_runtime::collect_script_warnings(trimmed),
     }
 }

@@ -1,28 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  CheckCircle2,
   ClipboardList,
   Edit2,
+  History,
   Play,
   Plus,
   Save,
   Search,
   Server,
+  Settings2,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { Button } from "@/components/Button";
+import { CodeEditor } from "@/components/CodeEditor";
 import { EmptyState } from "@/components/EmptyState";
-import { TextareaField, TextField } from "@/components/FormField";
+import { TextField } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
 import {
-  SectionHeader,
   SkeletonRows,
   TablePagination,
 } from "@/components/PageScaffold";
+import {
+  COLLAPSED_SIDE_PANEL_HEIGHT,
+  MIN_SIDE_PANEL_HEIGHT,
+  ResizableSidePanel,
+  clampSidePanelHeight,
+} from "@/components/ResizableSidePanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { copy as i18nCopy, useI18n } from "@/i18n";
 import { errorMessage, formatDateTime, statusLabel } from "@/lib/format";
@@ -325,6 +332,14 @@ export function TasksPage() {
   );
 }
 
+
+type TaskSidePanelKey = "info" | "targets" | "history";
+type TaskSidePanelHeights = Record<TaskSidePanelKey, number>;
+type TaskCollapsedPanels = Record<TaskSidePanelKey, boolean>;
+
+const TASK_SIDE_PANEL_GAP = 12;
+const TASK_SIDE_PANEL_KEYS: TaskSidePanelKey[] = ["info", "targets", "history"];
+
 export function TaskDetailPage() {
   const { taskId } = useParams();
   const navigate = useNavigate();
@@ -346,6 +361,30 @@ export function TaskDetailPage() {
     null,
   );
   const [lastRunBatch, setLastRunBatch] = useState<RunBatch | null>(null);
+  const [sidePanelHeights, setSidePanelHeights] = useState<TaskSidePanelHeights>({
+    info: 280,
+    targets: 360,
+    history: 260,
+  });
+  const [preferredSidePanelHeights, setPreferredSidePanelHeights] =
+    useState<TaskSidePanelHeights>({
+      info: 280,
+      targets: 360,
+      history: 260,
+    });
+  const [collapsedSidePanels, setCollapsedSidePanels] =
+    useState<TaskCollapsedPanels>({
+      info: false,
+      targets: false,
+      history: false,
+    });
+  const [sidePanelMaxHeight, setSidePanelMaxHeight] = useState(720);
+  const sidePanelRef = useRef<HTMLElement | null>(null);
+  const userResizedPanelsRef = useRef<Record<TaskSidePanelKey, boolean>>({
+    info: false,
+    targets: false,
+    history: false,
+  });
   const setHeaderActions = useUiStore((state) => state.setHeaderActions);
 
   const tasksQuery = useQuery({
@@ -384,10 +423,6 @@ export function TaskDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
       navigate("/tasks");
     },
-  });
-
-  const validateMutation = useMutation({
-    mutationFn: browserApi.validateTaskScript,
   });
 
   const runMutation = useMutation({
@@ -464,13 +499,6 @@ export function TaskDetailPage() {
           {text.backToList}
         </Button>
         <Button
-          disabled={!draft.script.trim() || validateMutation.isPending}
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          onClick={() => validateMutation.mutate(draft.script)}
-        >
-          {text.validate}
-        </Button>
-        <Button
           disabled={saveMutation.isPending || !draft.name.trim()}
           icon={<Save className="h-4 w-4" />}
           onClick={() => saveMutation.mutate(draft)}
@@ -502,9 +530,115 @@ export function TaskDetailPage() {
     taskMissing,
     text.backToList,
     text.saveTask,
-    text.validate,
-    validateMutation.isPending,
   ]);
+
+  const collapsedPanelCount = TASK_SIDE_PANEL_KEYS.filter(
+    (panel) => collapsedSidePanels[panel],
+  ).length;
+  const maxExpandedPanelHeight = Math.max(
+    MIN_SIDE_PANEL_HEIGHT,
+    sidePanelMaxHeight -
+      TASK_SIDE_PANEL_GAP * (TASK_SIDE_PANEL_KEYS.length - 1) -
+      collapsedPanelCount * COLLAPSED_SIDE_PANEL_HEIGHT,
+  );
+
+  const setSidePanelHeight = (
+    panel: TaskSidePanelKey,
+    height: number,
+    options?: { fromUser?: boolean },
+  ) => {
+    if (options?.fromUser) {
+      userResizedPanelsRef.current[panel] = true;
+    }
+    setSidePanelHeights((current) => ({
+      ...current,
+      [panel]: clampSidePanelHeight(height, maxExpandedPanelHeight),
+    }));
+  };
+
+  const setPreferredSidePanelHeight = (
+    panel: TaskSidePanelKey,
+    preferredHeight: number,
+  ) => {
+    const nextPreferred = clampSidePanelHeight(
+      preferredHeight,
+      Number.POSITIVE_INFINITY,
+      MIN_SIDE_PANEL_HEIGHT,
+    );
+    setPreferredSidePanelHeights((current) => {
+      if (Math.abs(current[panel] - nextPreferred) < 4) {
+        return current;
+      }
+      return { ...current, [panel]: nextPreferred };
+    });
+  };
+
+  const toggleSidePanel = (panel: TaskSidePanelKey) => {
+    setCollapsedSidePanels((current) => {
+      const nextCollapsed = !current[panel];
+      // 重新展开时回到完整内容高度
+      if (!nextCollapsed) {
+        userResizedPanelsRef.current[panel] = false;
+        setSidePanelHeights((heights) => ({
+          ...heights,
+          [panel]: preferredSidePanelHeights[panel] || heights[panel],
+        }));
+      }
+      return { ...current, [panel]: nextCollapsed };
+    });
+  };
+
+  useEffect(() => {
+    const element = sidePanelRef.current;
+    if (!element) return;
+
+    const updateHeight = () => setSidePanelMaxHeight(element.clientHeight);
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateHeight);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSidePanelHeights((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const panel of TASK_SIDE_PANEL_KEYS) {
+        if (
+          !userResizedPanelsRef.current[panel] &&
+          !collapsedSidePanels[panel]
+        ) {
+          const preferred = preferredSidePanelHeights[panel] || next[panel];
+          if (Math.abs(next[panel] - preferred) >= 4) {
+            next[panel] = preferred;
+            changed = true;
+          }
+        }
+      }
+      if (
+        !changed &&
+        TASK_SIDE_PANEL_KEYS.every(
+          (panel) => Math.abs(next[panel] - current[panel]) < 1,
+        )
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [collapsedSidePanels, preferredSidePanelHeights]);
+
+  const scriptLineCount = useMemo(
+    () => Math.max(1, draft.script.split("\n").length),
+    [draft.script],
+  );
+
+  const mutationError =
+    saveMutation.error ?? deleteMutation.error ?? runMutation.error;
 
   if (taskMissing) {
     return (
@@ -526,224 +660,302 @@ export function TaskDetailPage() {
   }
 
   return (
-    <div className="viewport-page grid-rows-[minmax(0,1fr)]">
-      <div className="scroll-panel grid min-h-0 min-w-0 content-start gap-3 pr-1 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start xl:pr-0">
-        <div className="grid min-w-0 content-start gap-3">
-          <section className="panel p-4">
-            <SectionHeader
-              title={draft.id ? text.editTitle : text.newTitle}
-            />
-
-            {(saveMutation.error ||
-              deleteMutation.error ||
-              validateMutation.error ||
-              runMutation.error) && (
-              <div className="mb-3 rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
-                {errorMessage(
-                  saveMutation.error ??
-                    deleteMutation.error ??
-                    validateMutation.error ??
-                    runMutation.error,
-                )}
+    <div className="viewport-page task-detail-layout">
+      <div className="task-detail-workspace grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="panel task-editor-panel flex min-h-0 min-w-0 flex-col overflow-hidden">
+          {mutationError ? (
+            <div className="task-editor-alerts shrink-0 border-b border-line px-4 py-3">
+              <div className="rounded-md border border-danger/20 bg-red-50 px-3 py-2 text-sm text-danger">
+                {errorMessage(mutationError)}
               </div>
-            )}
+            </div>
+          ) : null}
 
-            {validateMutation.data ? (
-              <div
-                className={`mb-3 rounded-md border px-3 py-2 text-sm ${
-                  validateMutation.data.valid
-                    ? "border-ok/20 bg-green-50 text-ok"
-                    : "border-danger/20 bg-red-50 text-danger"
-                }`}
-              >
-                {validateMutation.data.valid
-                  ? text.validationPassed
-                  : validateMutation.data.errors.join(text.validationJoiner)}
+          <CodeEditor
+            ariaLabel={text.scriptEditor}
+            className="task-script-editor min-h-0 flex-1"
+            language="javascript"
+            minHeight={480}
+            onChange={(script) => updateDraft("script", script)}
+            placeholder={text.scriptPlaceholder}
+            toolbar={
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-sm font-semibold text-ink-900">
+                    {text.scriptEditor}
+                  </span>
+                  <span className="hidden text-xs text-ink-500 sm:inline">
+                    {draft.id ? text.editTitle : text.newTitle}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-ink-500">
+                  <span className="rounded-md border border-line bg-ink-50 px-2 py-0.5 mono-tabular">
+                    JS
+                  </span>
+                  <span className="mono-tabular">
+                    {format(text.lineCount, { count: scriptLineCount })}
+                  </span>
+                  <span className="mono-tabular">API {draft.api_version}</span>
+                </div>
               </div>
-            ) : null}
-
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px]">
-              <TextField
-                label={text.taskName}
-                onChange={(event) => updateDraft("name", event.target.value)}
-                requiredMark
-                value={draft.name}
-              />
-              <TextField
-                label={text.timeout}
-                min={5}
-                onChange={(event) =>
-                  updateDraft("timeout_sec", Number(event.target.value) || 60)
-                }
-                type="number"
-                value={draft.timeout_sec}
-              />
-            </div>
-            <div className="mt-3">
-              <TextareaField
-                label={text.description}
-                onChange={(event) =>
-                  updateDraft("description", event.target.value)
-                }
-                value={draft.description ?? ""}
-              />
-            </div>
-          </section>
-
-          <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
-            <SectionHeader
-              actions={
-                <div className="flex flex-wrap gap-2">
+            }
+            value={draft.script}
+            footer={
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-xs font-medium text-ink-500">
+                    {text.templatesLabel}
+                  </span>
                   {scriptTemplates.map((template) => (
-                    <Button
+                    <button
+                      className="task-template-chip"
                       key={template.name}
                       onClick={() => updateDraft("script", template.script)}
-                      size="sm"
-                      variant="ghost"
+                      type="button"
                     >
                       {template.name}
-                    </Button>
+                    </button>
                   ))}
                 </div>
-              }
-              title={text.scriptEditor}
-            />
-            <textarea
-              className="control-focus h-[52vh] min-h-80 w-full max-w-full resize-none overflow-auto rounded-md border border-ink-800 bg-ink-900 p-4 text-sm leading-6 text-ink-50"
-              data-code-editor="true"
-              onChange={(event) => updateDraft("script", event.target.value)}
-              spellCheck={false}
-              value={draft.script}
-            />
-          </section>
+                <span className="hidden text-xs text-ink-500 lg:inline">
+                  {draft.id ? text.detailSubtitle : text.newTaskHint}
+                </span>
+              </div>
+            }
+          />
+        </section>
 
-        </div>
+        <aside
+          ref={sidePanelRef}
+          className="task-detail-aside scroll-panel flex min-h-0 min-w-0 flex-col gap-3 overflow-x-hidden"
+        >
+          <ResizableSidePanel
+            collapsed={collapsedSidePanels.info}
+            height={sidePanelHeights.info}
+            icon={<Settings2 className="h-4 w-4 shrink-0 text-brand-600" />}
+            maxHeight={maxExpandedPanelHeight}
+            onHeightChange={(height) =>
+              setSidePanelHeight("info", height, { fromUser: true })
+            }
+            onPreferredHeightChange={(height) =>
+              setPreferredSidePanelHeight("info", height)
+            }
+            onToggle={() => toggleSidePanel("info")}
+            subtitle={draft.id ? text.detailSubtitle : text.newTaskHint}
+            title={draft.id ? text.editTitle : text.newTitle}
+          >
+            <div className="grid gap-3">
+              <label className="grid min-w-0 gap-1.5 text-sm">
+                <span className="font-medium text-ink-700">
+                  {text.taskName}
+                  <span className="ml-1 text-danger">*</span>
+                </span>
+                <input
+                  aria-label={text.taskName}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="form-control control-focus h-10 w-full min-w-0 rounded-lg border border-line bg-white px-3.5 text-sm text-ink-900 placeholder:text-ink-400"
+                  onChange={(event) => updateDraft("name", event.target.value)}
+                  placeholder={text.taskNamePlaceholder}
+                  spellCheck={false}
+                  value={draft.name}
+                />
+              </label>
 
-        <aside className="grid min-w-0 content-start gap-3">
-          <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
-            <SectionHeader
-              actions={
-                <Button
-                  disabled={!canRun || runMutation.isPending}
-                  icon={<Play className="h-4 w-4" />}
-                  onClick={() => runMutation.mutate()}
-                  variant="primary"
-                >
-                  {copy.common.run}
-                </Button>
-              }
-              subtitle={format(text.selectedEnvironments, {
-                selected: selectedEnvironmentIds.length,
-                total: environments.length,
-              })}
-              title={text.runTargets}
-            />
-            <div className="max-h-64 overflow-auto rounded-md border border-line bg-white">
-              {lastRunBatch ? (
-                <div className="border-b border-line bg-green-50 px-3 py-2 text-sm text-ok">
-                  {format(text.batchCreated, {
-                    id: lastRunBatch.id,
-                    total: lastRunBatch.total_count,
-                  })}
-                </div>
-              ) : null}
-              {environments.map((environment: Environment) => (
-                <label
-                  className="flex cursor-pointer items-center justify-between border-b border-line px-3 py-2 text-sm transition-colors duration-150 last:border-b-0 hover:bg-ink-50 focus-within:bg-brand-50"
-                  key={environment.id}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-ink-900">
-                      {environment.name}
-                    </span>
-                    <span className="block truncate text-xs text-ink-500">
-                      {environment.group_id || copy.common.defaultGroup}
-                    </span>
-                  </span>
+              <label className="grid min-w-0 gap-1.5 text-sm">
+                <span className="font-medium text-ink-700">{text.description}</span>
+                <textarea
+                  aria-label={text.description}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="form-control control-focus min-h-[3.25rem] w-full min-w-0 resize-y rounded-lg border border-line bg-white px-3.5 py-2.5 text-sm leading-5 text-ink-900 placeholder:text-ink-400"
+                  onChange={(event) =>
+                    updateDraft("description", event.target.value)
+                  }
+                  placeholder={text.descriptionPlaceholder}
+                  rows={2}
+                  spellCheck={false}
+                  value={draft.description ?? ""}
+                />
+              </label>
+
+              <label className="grid min-w-0 gap-1.5 text-sm">
+                <span className="font-medium text-ink-700">{text.timeout}</span>
+                <div className="task-timeout-field flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-3.5">
                   <input
-                    checked={selectedEnvironmentIds.includes(environment.id)}
-                    className="h-4 w-4 shrink-0"
-                    onChange={(event) => {
-                      setSelectedEnvironmentIds((current) =>
-                        event.target.checked
-                          ? [...current, environment.id]
-                          : current.filter((id) => id !== environment.id),
-                      );
-                    }}
+                    aria-label={text.timeout}
+                    className="control-focus w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium tabular-nums text-ink-900 outline-none"
+                    min={5}
+                    onChange={(event) =>
+                      updateDraft(
+                        "timeout_sec",
+                        Number(event.target.value) || 60,
+                      )
+                    }
+                    spellCheck={false}
+                    type="number"
+                    value={draft.timeout_sec}
+                  />
+                  <span className="shrink-0 text-xs text-ink-500">
+                    {text.seconds}
+                  </span>
+                </div>
+              </label>
+            </div>
+          </ResizableSidePanel>
+
+          <ResizableSidePanel
+            actions={
+              <Button
+                disabled={!canRun || runMutation.isPending}
+                icon={<Play className="h-4 w-4" />}
+                onClick={() => runMutation.mutate()}
+                size="sm"
+                variant="primary"
+              >
+                {copy.common.run}
+              </Button>
+            }
+            collapsed={collapsedSidePanels.targets}
+            height={sidePanelHeights.targets}
+            icon={<Server className="h-4 w-4 shrink-0 text-brand-600" />}
+            maxHeight={maxExpandedPanelHeight}
+            onHeightChange={(height) =>
+              setSidePanelHeight("targets", height, { fromUser: true })
+            }
+            onPreferredHeightChange={(height) =>
+              setPreferredSidePanelHeight("targets", height)
+            }
+            onToggle={() => toggleSidePanel("targets")}
+            subtitle={format(text.selectedEnvironments, {
+              selected: selectedEnvironmentIds.length,
+              total: environments.length,
+            })}
+            title={text.runTargets}
+          >
+            <div className="grid min-h-0 gap-3">
+              <div className="max-h-full min-h-0 overflow-auto rounded-md border border-line bg-white">
+                {lastRunBatch ? (
+                  <div className="border-b border-line bg-green-50 px-3 py-2 text-sm text-ok">
+                    {format(text.batchCreated, {
+                      id: lastRunBatch.id,
+                      total: lastRunBatch.total_count,
+                    })}
+                  </div>
+                ) : null}
+                {environments.map((environment: Environment) => (
+                  <label
+                    className="flex cursor-pointer items-center justify-between border-b border-line px-3 py-2 text-sm transition-colors duration-150 last:border-b-0 hover:bg-ink-50 focus-within:bg-brand-50"
+                    key={environment.id}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-ink-900">
+                        {environment.name}
+                      </span>
+                      <span className="block truncate text-xs text-ink-500">
+                        {environment.group_id || copy.common.defaultGroup}
+                      </span>
+                    </span>
+                    <input
+                      checked={selectedEnvironmentIds.includes(environment.id)}
+                      className="h-4 w-4 shrink-0"
+                      onChange={(event) => {
+                        setSelectedEnvironmentIds((current) =>
+                          event.target.checked
+                            ? [...current, environment.id]
+                            : current.filter((id) => id !== environment.id),
+                        );
+                      }}
+                      type="checkbox"
+                    />
+                  </label>
+                ))}
+                {environments.length === 0 ? (
+                  <EmptyState
+                    className="border-0 bg-transparent"
+                    description={text.noRunnableDescription}
+                    icon={<Server className="h-5 w-5" />}
+                    title={text.noRunnableTitle}
+                  />
+                ) : null}
+              </div>
+
+              <div className="grid shrink-0 gap-3">
+                <TextField
+                  label={text.maxConcurrency}
+                  min={1}
+                  onChange={(event) =>
+                    setRunOptions((current) => ({
+                      ...current,
+                      max_concurrency: Number(event.target.value) || 1,
+                    }))
+                  }
+                  type="number"
+                  value={runOptions.max_concurrency}
+                />
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
+                  <input
+                    checked={runOptions.stop_on_first_error}
+                    className="h-4 w-4"
+                    onChange={(event) =>
+                      setRunOptions((current) => ({
+                        ...current,
+                        stop_on_first_error: event.target.checked,
+                      }))
+                    }
                     type="checkbox"
                   />
+                  {text.stopOnFirstError}
                 </label>
-              ))}
-              {environments.length === 0 ? (
-                <EmptyState
-                  className="border-0 bg-transparent"
-                  description={text.noRunnableDescription}
-                  icon={<Server className="h-5 w-5" />}
-                  title={text.noRunnableTitle}
-                />
-              ) : null}
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
+                  <input
+                    checked={runOptions.auto_start_browser}
+                    className="h-4 w-4"
+                    onChange={(event) =>
+                      setRunOptions((current) => ({
+                        ...current,
+                        auto_start_browser: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  {text.autoStartBrowser}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
+                  <input
+                    checked={runOptions.close_browser_after_run}
+                    className="h-4 w-4"
+                    onChange={(event) =>
+                      setRunOptions((current) => ({
+                        ...current,
+                        close_browser_after_run: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  {text.closeAfterRun}
+                </label>
+              </div>
             </div>
-            <div className="mt-4 grid shrink-0 gap-3">
-              <TextField
-                label={text.maxConcurrency}
-                min={1}
-                onChange={(event) =>
-                  setRunOptions((current) => ({
-                    ...current,
-                    max_concurrency: Number(event.target.value) || 1,
-                  }))
-                }
-                type="number"
-                value={runOptions.max_concurrency}
-              />
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
-                <input
-                  checked={runOptions.stop_on_first_error}
-                  className="h-4 w-4"
-                  onChange={(event) =>
-                    setRunOptions((current) => ({
-                      ...current,
-                      stop_on_first_error: event.target.checked,
-                    }))
-                  }
-                  type="checkbox"
-                />
-                {text.stopOnFirstError}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
-                <input
-                  checked={runOptions.auto_start_browser}
-                  className="h-4 w-4"
-                  onChange={(event) =>
-                    setRunOptions((current) => ({
-                      ...current,
-                      auto_start_browser: event.target.checked,
-                    }))
-                  }
-                  type="checkbox"
-                />
-                {text.autoStartBrowser}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
-                <input
-                  checked={runOptions.close_browser_after_run}
-                  className="h-4 w-4"
-                  onChange={(event) =>
-                    setRunOptions((current) => ({
-                      ...current,
-                      close_browser_after_run: event.target.checked,
-                    }))
-                  }
-                  type="checkbox"
-                />
-                {text.closeAfterRun}
-              </label>
-            </div>
-          </section>
+          </ResizableSidePanel>
 
-          <section className="panel flex min-w-0 flex-col overflow-hidden p-4">
-            <SectionHeader title={text.recentRuns} />
-            <div className="max-h-72 overflow-auto rounded-md border border-line bg-white">
+          <ResizableSidePanel
+            collapsed={collapsedSidePanels.history}
+            height={sidePanelHeights.history}
+            icon={<History className="h-4 w-4 shrink-0 text-brand-600" />}
+            maxHeight={maxExpandedPanelHeight}
+            onHeightChange={(height) =>
+              setSidePanelHeight("history", height, { fromUser: true })
+            }
+            onPreferredHeightChange={(height) =>
+              setPreferredSidePanelHeight("history", height)
+            }
+            onToggle={() => toggleSidePanel("history")}
+            title={text.recentRuns}
+          >
+            <div className="max-h-full overflow-auto rounded-md border border-line bg-white">
               {selectedEnvironments.length > 0 ? (
                 <div className="border-b border-line bg-green-50 px-3 py-2 text-xs text-ok">
                   {format(text.selectedCount, {
@@ -751,12 +963,18 @@ export function TaskDetailPage() {
                   })}
                 </div>
               ) : null}
-              {(recentRunsQuery.data ?? []).slice(0, 6).map((run) => (
-                <div className="border-b border-line px-3 py-2 last:border-b-0" key={run.id}>
+              {(recentRunsQuery.data ?? []).slice(0, 8).map((run) => (
+                <div
+                  className="border-b border-line px-3 py-2 last:border-b-0"
+                  key={run.id}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <StatusBadge status={run.status} />
                     <span className="text-xs text-ink-500">
-                      {formatDateTime(run.started_at ?? run.queued_at, language)}
+                      {formatDateTime(
+                        run.started_at ?? run.queued_at,
+                        language,
+                      )}
                     </span>
                   </div>
                   <p className="mt-2 truncate text-xs text-ink-500">
@@ -766,7 +984,9 @@ export function TaskDetailPage() {
                 </div>
               ))}
               {draft.id && recentRunsQuery.data?.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-ink-500">{text.noRunHistory}</div>
+                <div className="px-3 py-4 text-sm text-ink-500">
+                  {text.noRunHistory}
+                </div>
               ) : null}
               {!draft.id ? (
                 <div className="px-3 py-6 text-center text-sm text-ink-500">
@@ -774,8 +994,7 @@ export function TaskDetailPage() {
                 </div>
               ) : null}
             </div>
-          </section>
-
+          </ResizableSidePanel>
         </aside>
       </div>
 

@@ -700,8 +700,280 @@ fn bootstrap_script() -> &'static str {
 "#
 }
 
-pub fn validate_script_surface(_script: &str) -> AppResult<()> {
+pub fn validate_script_surface(script: &str) -> AppResult<()> {
+    let trimmed = script.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::new(
+            "script_compile_error",
+            "Script cannot be empty",
+        ));
+    }
+
+    // 静态结构检查：引号/模板字符串/注释内的括号不参与平衡判断
+    validate_script_structure(trimmed)?;
+
+    // 真实语法编译：只加载模块，不执行，避免触发 page/log 副作用
+    validate_script_syntax(trimmed)?;
     Ok(())
+}
+
+/// 收集不阻塞保存的提示信息
+pub fn collect_script_warnings(script: &str) -> Vec<String> {
+    let trimmed = script.trim();
+    let mut warnings = Vec::new();
+    if trimmed.is_empty() {
+        return warnings;
+    }
+
+    let lowered = trimmed.to_ascii_lowercase();
+    let uses_page = lowered.contains("page.") || lowered.contains("orbit.page");
+    let uses_log = lowered.contains("log.") || lowered.contains("orbit.log");
+    let uses_run = lowered.contains("run.") || lowered.contains("orbit.run");
+    let uses_sleep = lowered.contains("sleep(") || lowered.contains("orbit.sleep");
+
+    if !(uses_page || uses_log || uses_run || uses_sleep) {
+        warnings.push(
+            "Script does not call page/log/run/sleep APIs; confirm this is intentional"
+                .to_string(),
+        );
+    }
+
+    if uses_page
+        && !lowered.contains("await page.")
+        && !lowered.contains("await orbit.page.")
+    {
+        warnings.push(
+            "page APIs are async; prefer `await page.xxx(...)` to avoid race conditions"
+                .to_string(),
+        );
+    }
+
+    if trimmed.lines().count() > 400 {
+        warnings.push("Script is quite long; consider splitting into smaller tasks".to_string());
+    }
+
+    warnings
+}
+
+fn validate_script_structure(script: &str) -> AppResult<()> {
+    let mut stack: Vec<(char, usize, usize)> = Vec::new();
+    let mut line = 1usize;
+    let mut col = 0usize;
+    let mut chars = script.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_template = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    // `${ ... }` 表达式内部的花括号嵌套深度
+    let mut template_expr_depth = 0usize;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+            if in_line_comment {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        col += 1;
+
+        if in_line_comment {
+            continue;
+        }
+        if in_block_comment {
+            if ch == '*' && chars.peek() == Some(&'/') {
+                let _ = chars.next();
+                col += 1;
+                in_block_comment = false;
+            }
+            continue;
+        }
+
+        if in_single {
+            if ch == '\\' {
+                if chars.next().is_some() {
+                    col += 1;
+                }
+            } else if ch == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if in_double {
+            if ch == '\\' {
+                if chars.next().is_some() {
+                    col += 1;
+                }
+            } else if ch == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+
+        // 模板字符串字面量主体（不在 ${} 中）
+        if in_template && template_expr_depth == 0 {
+            if ch == '\\' {
+                if chars.next().is_some() {
+                    col += 1;
+                }
+            } else if ch == '`' {
+                in_template = false;
+            } else if ch == '$' && chars.peek() == Some(&'{') {
+                let _ = chars.next();
+                col += 1;
+                template_expr_depth = 1;
+                stack.push(('{', line, col));
+            }
+            continue;
+        }
+
+        match ch {
+            '/' => match chars.peek().copied() {
+                Some('/') => {
+                    let _ = chars.next();
+                    col += 1;
+                    in_line_comment = true;
+                }
+                Some('*') => {
+                    let _ = chars.next();
+                    col += 1;
+                    in_block_comment = true;
+                }
+                _ => {}
+            },
+            '\'' => in_single = true,
+            '"' => in_double = true,
+            '`' if template_expr_depth == 0 => in_template = true,
+            '{' => {
+                stack.push(('{', line, col));
+                if template_expr_depth > 0 {
+                    template_expr_depth += 1;
+                }
+            }
+            '}' => match stack.pop() {
+                Some(('{', _, _)) => {
+                    if template_expr_depth > 0 {
+                        template_expr_depth -= 1;
+                    }
+                }
+                Some((open, open_line, open_col)) => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!(
+                            "Mismatched `}}` at {line}:{col}; nearest open `{open}` at {open_line}:{open_col}"
+                        ),
+                    ));
+                }
+                None => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!("Unexpected `}}` at {line}:{col}"),
+                    ));
+                }
+            },
+            '(' => stack.push(('(', line, col)),
+            ')' => match stack.pop() {
+                Some(('(', _, _)) => {}
+                Some((open, open_line, open_col)) => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!(
+                            "Mismatched `)` at {line}:{col}; nearest open `{open}` at {open_line}:{open_col}"
+                        ),
+                    ));
+                }
+                None => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!("Unexpected `)` at {line}:{col}"),
+                    ));
+                }
+            },
+            '[' => stack.push(('[', line, col)),
+            ']' => match stack.pop() {
+                Some(('[', _, _)) => {}
+                Some((open, open_line, open_col)) => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!(
+                            "Mismatched `]` at {line}:{col}; nearest open `{open}` at {open_line}:{open_col}"
+                        ),
+                    ));
+                }
+                None => {
+                    return Err(AppError::new(
+                        "script_compile_error",
+                        format!("Unexpected `]` at {line}:{col}"),
+                    ));
+                }
+            },
+            _ => {}
+        }
+    }
+
+    if in_single || in_double || in_template {
+        return Err(AppError::new(
+            "script_compile_error",
+            "Unterminated string or template literal",
+        ));
+    }
+    if in_block_comment {
+        return Err(AppError::new(
+            "script_compile_error",
+            "Unterminated block comment",
+        ));
+    }
+    if let Some((open, open_line, open_col)) = stack.last() {
+        return Err(AppError::new(
+            "script_compile_error",
+            format!("Unclosed `{open}` starting at {open_line}:{open_col}"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_script_syntax(script: &str) -> AppResult<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| AppError::new("script_compile_error", err.to_string()))?;
+
+    runtime.block_on(async {
+        let mut js_runtime = JsRuntime::new(RuntimeOptions::default());
+        let module = resolve_url("file:///orbit-validate.js").map_err(|err| {
+            AppError::new("script_compile_error", err.to_string())
+        })?;
+        // 只编译模块图，不 evaluate，避免执行脚本副作用
+        js_runtime
+            .load_main_es_module_from_code(&module, script.to_string())
+            .await
+            .map_err(|err| {
+                AppError::new(
+                    "script_compile_error",
+                    format_compile_error(&err.to_string()),
+                )
+            })?;
+        Ok(())
+    })
+}
+
+fn format_compile_error(raw: &str) -> String {
+    let compact = raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if compact.is_empty() {
+        "Script syntax error".to_string()
+    } else if compact.len() > 320 {
+        format!("{}…", &compact[..320])
+    } else {
+        compact
+    }
 }
 
 fn option_timeout(options: &Option<Value>, default_ms: u64) -> u64 {
@@ -752,10 +1024,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validation_allows_script_surface_without_keyword_blocks() {
+    fn validation_allows_valid_task_scripts() {
         assert!(validate_script_surface("await page.goto('https://example.com')").is_ok());
-        assert!(validate_script_surface("fetch('https://example.com')").is_ok());
-        assert!(validate_script_surface("Deno.core.ops.op_read_file()").is_ok());
+        assert!(validate_script_surface("const x = 1;\nlog.info(String(x));").is_ok());
+        assert!(validate_script_surface("for (const url of [\"a\", \"b\"]) {\n  await page.goto(url);\n}").is_ok());
+    }
+
+    #[test]
+    fn validation_rejects_syntax_and_structure_errors() {
+        assert!(validate_script_surface("").is_err());
+        assert!(validate_script_surface("const x = {").is_err());
+        assert!(validate_script_surface("const x = 'unterminated").is_err());
+        assert!(validate_script_surface("const x = ;").is_err());
+    }
+
+    #[test]
+    fn warnings_detect_missing_api_usage() {
+        let warnings = collect_script_warnings("const x = 1;");
+        assert!(!warnings.is_empty());
+        let page_warnings = collect_script_warnings("page.goto('https://example.com')");
+        assert!(page_warnings.iter().any(|item| item.contains("await")));
     }
 
     #[test]
