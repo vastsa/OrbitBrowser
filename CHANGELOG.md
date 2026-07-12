@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed macOS app icon sizing by adding Dock/Launchpad-safe transparent padding (~10% margins) and regenerating icon bundles.
+
 ## 0.5.0
 
 - Aligned Chrome native language preferences, Intl locale, CDP timezone, and

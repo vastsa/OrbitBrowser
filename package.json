@@ -22,7 +22,8 @@
     "tauri": "tauri",
     "tauri:build": "tauri build",
     "tauri:dev": "tauri dev",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "icons:regenerate": "node scripts/regenerate-icons.mjs"
   },
   "engines": {
     "node": ">=20.0.0",
