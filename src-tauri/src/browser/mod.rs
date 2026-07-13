@@ -9,4 +9,5 @@ pub mod profile_manager;
 pub mod recovery;
 pub mod runtime_page;
 pub mod session_registry;
+pub mod stealth;
 pub mod timezone_controller;

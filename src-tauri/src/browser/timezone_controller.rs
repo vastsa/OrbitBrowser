@@ -40,16 +40,10 @@ impl BrowserRuntimeOverrides {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.timezone_id.is_none() && self.geolocation.is_none() && self.locale.is_none()
-    }
 }
 
 pub async fn apply_and_watch(port: u16, overrides: BrowserRuntimeOverrides) -> AppResult<()> {
-    if overrides.is_empty() {
-        return Ok(());
-    }
-
+    // 即使没有时区/地理/locale 覆盖，也需要持续给新页面安装 stealth。
     cdp_client::wait_for_version(port, Duration::from_secs(5)).await?;
     let Some(watcher_token) = claim_watcher_port(port) else {
         return Ok(());
@@ -167,6 +161,19 @@ impl TargetSession {
         self.call("Emulation.setLocaleOverride", json!({ "locale": locale }))
             .await
             .map(|_| ())
+    }
+
+    async fn install_stealth(&mut self) -> AppResult<()> {
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            crate::browser::stealth::add_script_params(),
+        )
+        .await
+        .map(|_| ())?;
+        self.call("Runtime.evaluate", crate::browser::stealth::evaluate_params())
+            .await
+            .map(|_| ())?;
+        Ok(())
     }
 
     async fn call(&mut self, method: &str, params: Value) -> AppResult<Value> {
@@ -427,6 +434,14 @@ async fn apply_to_existing_targets(
 
         match TargetSession::connect(target).await {
             Ok(mut session) => {
+                if let Err(err) = session.install_stealth().await {
+                    tracing::warn!(
+                        target_id = target.id,
+                        target_url = target.url,
+                        error = %err,
+                        "Failed to install CDP stealth patches"
+                    );
+                }
                 let mut keep_session = true;
                 if let Some(locale) = overrides.locale.as_deref() {
                     if let Err(err) = session.set_locale(locale).await {

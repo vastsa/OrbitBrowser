@@ -26,7 +26,14 @@ pub fn build(
 
     let mut args = vec![
         format!("--user-data-dir={}", profile_dir.to_string_lossy()),
+        // 使用非常用高位端口，并仅绑定本机回环，降低 CDP 端口被外网/页面侧探测的风险。
         format!("--remote-debugging-port={cdp_port}"),
+        "--remote-debugging-address=127.0.0.1".to_string(),
+        // Chrome 111+ 需要显式放行本地 CDP 客户端来源。
+        "--remote-allow-origins=*".to_string(),
+        // 关闭 AutomationControlled，避免 navigator.webdriver / 自动化横幅暴露。
+        "--disable-blink-features=AutomationControlled".to_string(),
+        "--exclude-switches=enable-automation".to_string(),
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
         "--disable-popup-blocking".to_string(),
@@ -355,6 +362,37 @@ mod tests {
         let plan = build(&root, &env, &profile_dir, 9222, None).unwrap();
 
         assert!(plan.args.iter().any(|arg| arg == "--headless=new"));
+    }
+
+    #[test]
+    fn chrome_cdp_listens_on_loopback_only() {
+        let root = std::env::temp_dir().join(format!("orbit-cdp-bind-{}", uuid::Uuid::new_v4()));
+        let env = test_environment();
+        let profile_dir = root.join("profiles").join("env_cdp");
+
+        let plan = build(&root, &env, &profile_dir, 47_123, None).unwrap();
+
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "--remote-debugging-port=47123"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "--remote-debugging-address=127.0.0.1"));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "--remote-allow-origins=*"));
+        assert!(plan.args.iter().any(|arg| {
+            arg == "--disable-blink-features=AutomationControlled"
+        }));
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg == "--exclude-switches=enable-automation"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -147,9 +147,24 @@ impl CdpPage {
             recent_network_entries: Vec::new(),
         };
         page.call("Page.enable", json!({})).await?;
+        // 在启用 Runtime/Network 前先安装隐匿脚本，覆盖后续导航与当前文档。
+        if let Err(err) = page.install_stealth().await {
+            tracing::warn!(error = %err, "Failed to install CDP stealth patches");
+        }
         page.call("Runtime.enable", json!({})).await?;
         page.call("Network.enable", json!({})).await?;
         Ok(page)
+    }
+
+    pub async fn install_stealth(&mut self) -> AppResult<()> {
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            crate::browser::stealth::add_script_params(),
+        )
+        .await?;
+        self.call("Runtime.evaluate", crate::browser::stealth::evaluate_params())
+            .await?;
+        Ok(())
     }
 
     pub async fn goto(&mut self, url: &str, timeout: Duration) -> AppResult<()> {
