@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Hardened Chrome CDP stealth: uncommon loopback ports, AutomationControlled off, and Page-level webdriver/CDP residue patches on every target.
+- Hardened Chrome CDP stealth: uncommon loopback ports, exclude automation switches, and Page-level webdriver/CDP residue patches on every target.
+- Avoid Chrome's unsupported-flag infobar by not launching with --disable-blink-features=AutomationControlled.
 - Optimized the AI Agent composer input path and made Enter send messages by default.
 - Completed the AI Agent browser event recording flow with live status polling, environment-aware sync, richer side-panel controls, and attach-to-chat references.
 - Removed the browser context side card from the AI Agent workspace.

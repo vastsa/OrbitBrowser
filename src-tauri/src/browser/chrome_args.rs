@@ -31,8 +31,9 @@ pub fn build(
         "--remote-debugging-address=127.0.0.1".to_string(),
         // Chrome 111+ 需要显式放行本地 CDP 客户端来源。
         "--remote-allow-origins=*".to_string(),
-        // 关闭 AutomationControlled，避免 navigator.webdriver / 自动化横幅暴露。
-        "--disable-blink-features=AutomationControlled".to_string(),
+        // 不传 enable-automation；webdriver 由页面 stealth 注入处理。
+        // 注意：不要加 --disable-blink-features=AutomationControlled，
+        // Chrome 会弹出“不受支持的命令行标记”黄条，反而更易被识别。
         "--exclude-switches=enable-automation".to_string(),
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
@@ -384,8 +385,8 @@ mod tests {
             .args
             .iter()
             .any(|arg| arg == "--remote-allow-origins=*"));
-        assert!(plan.args.iter().any(|arg| {
-            arg == "--disable-blink-features=AutomationControlled"
+        assert!(!plan.args.iter().any(|arg| {
+            arg.starts_with("--disable-blink-features=")
         }));
         assert!(plan
             .args
