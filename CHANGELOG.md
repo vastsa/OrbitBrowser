@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Completed the AI Agent browser event recording flow with live status polling, environment-aware sync, richer side-panel controls, and attach-to-chat references.
+- Removed the browser context side card from the AI Agent workspace.
+- Added recording event filters/clear, and made history/recording side panels half-height by default with drag resize and scroll.
+- Kept the latest recording summary after stop/crash so status queries and the UI can still review captured network and navigation events.
 - Fixed macOS app icon sizing by adding Dock/Launchpad-safe transparent padding (~10% margins) and regenerating icon bundles.
 
 ## 0.5.0

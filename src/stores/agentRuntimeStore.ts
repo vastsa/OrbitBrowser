@@ -3,7 +3,6 @@ import { create } from "zustand";
 import type {
   AgentHistorySession,
   AgentRecordingSummary,
-  BrowserContextSnapshot,
 } from "@/types/domain";
 
 export type AgentRole = "system" | "user" | "assistant" | "tool";
@@ -38,7 +37,6 @@ type AgentRuntimeState = {
   apiMessages: AgentOpenAIMessage[];
   isRunning: boolean;
   error: string | null;
-  context: BrowserContextSnapshot | null;
   recording: AgentRecordingSummary | null;
   sessions: AgentHistorySession[];
   isHistoryLoading: boolean;
@@ -53,7 +51,6 @@ type AgentRuntimeActions = {
   ) => void;
   resetConversation: () => void;
   setApiMessages: (messages: AgentOpenAIMessage[]) => void;
-  setContext: (context: BrowserContextSnapshot | null) => void;
   setError: (error: string | null) => void;
   setIsHistoryLoading: (isHistoryLoading: boolean) => void;
   setIsRunning: (isRunning: boolean) => void;
@@ -72,7 +69,6 @@ export const useAgentRuntimeStore = create<AgentRuntimeState & AgentRuntimeActio
   apiMessages: [],
   isRunning: false,
   error: null,
-  context: null,
   recording: null,
   sessions: [],
   isHistoryLoading: false,
@@ -97,9 +93,8 @@ export const useAgentRuntimeStore = create<AgentRuntimeState & AgentRuntimeActio
       ),
     })),
   resetConversation: () =>
-    set({ messages: [], apiMessages: [], error: null, context: null }),
+    set({ messages: [], apiMessages: [], error: null }),
   setApiMessages: (apiMessages) => set({ apiMessages }),
-  setContext: (context) => set({ context }),
   setError: (error) => set({ error }),
   setIsHistoryLoading: (isHistoryLoading) => set({ isHistoryLoading }),
   setIsRunning: (isRunning) => set({ isRunning }),

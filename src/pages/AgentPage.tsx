@@ -40,7 +40,6 @@ import type {
   AgentRecordingSummary,
   AutomationTask,
   AutomationTaskDraft,
-  BrowserContextSnapshot,
   Environment,
   RunArtifact,
   RunArtifactContent,
@@ -641,6 +640,17 @@ function formatRecordingEventLine(event: AgentRecordingEvent, index: number) {
   return `#${index + 1} [${event.kind}] ${event.method || "-"} ${event.status ?? "-"} ${event.resource_type || "-"} ${event.title || ""} ${event.url || ""} @ ${event.timestamp}`.trim();
 }
 
+function formatRecordingEventSummary(event: AgentRecordingEvent) {
+  const parts = [
+    event.method || null,
+    event.status != null ? String(event.status) : null,
+    event.resource_type || null,
+    event.title || null,
+    event.url || null,
+  ].filter(Boolean);
+  return parts.join(" · ") || event.kind;
+}
+
 function buildRecordingReference(summary: AgentRecordingSummary, event?: AgentRecordingEvent) {
   if (event) {
     return `[引用录制事件产物]
@@ -843,7 +853,6 @@ const LAST_AGENT_ENVIRONMENT_KEY = "orbit-browser.agent.lastEnvironmentId";
 const LAST_AGENT_SESSION_KEY_PREFIX = "orbit-browser.agent.lastSessionId";
 const MAX_AGENT_VISIBLE_MESSAGES = 200;
 const MAX_AGENT_API_MESSAGES = 120;
-const MAX_AGENT_TOOL_TURNS = 12;
 const MAX_AGENT_CONTEXT_CHARS = 80_000;
 const MAX_RECENT_API_MESSAGES = 40;
 
@@ -936,7 +945,7 @@ type ResizableAgentPanelProps = {
   title: string;
 };
 
-type SidePanelKey = "sessions" | "context" | "recording";
+type SidePanelKey = "sessions" | "recording";
 
 type SidePanelHeights = Record<SidePanelKey, number>;
 
@@ -965,7 +974,7 @@ function totalSidePanelHeight(
   heights: SidePanelHeights,
   collapsed: CollapsedSidePanels,
 ) {
-  const panels: SidePanelKey[] = ["sessions", "context", "recording"];
+  const panels: SidePanelKey[] = ["sessions", "recording"];
   return (
     panels.reduce(
       (total, panel) => total + visiblePanelHeight(panel, heights, collapsed),
@@ -975,32 +984,142 @@ function totalSidePanelHeight(
   );
 }
 
+function sidePanelKeys(): SidePanelKey[] {
+  return ["sessions", "recording"];
+}
+
+function availableExpandedHeight(
+  maxTotalHeight: number,
+  collapsed: CollapsedSidePanels,
+) {
+  const panels = sidePanelKeys();
+  const expandedCount = panels.filter((panel) => !collapsed[panel]).length;
+  const collapsedCount = panels.length - expandedCount;
+  return Math.max(
+    0,
+    maxTotalHeight
+      - SIDE_PANEL_GAP * Math.max(panels.length - 1, 0)
+      - collapsedCount * COLLAPSED_AGENT_PANEL_HEIGHT,
+  );
+}
+
+/** 始终把展开面板高度之和填满右侧可用空间。 */
+function fillSidePanelHeights(
+  heights: SidePanelHeights,
+  collapsed: CollapsedSidePanels,
+  maxTotalHeight: number,
+  preferredPanel?: SidePanelKey,
+): SidePanelHeights {
+  const panels = sidePanelKeys();
+  const expanded = panels.filter((panel) => !collapsed[panel]);
+  const available = availableExpandedHeight(maxTotalHeight, collapsed);
+  const next: SidePanelHeights = {
+    sessions: Math.max(MIN_AGENT_PANEL_HEIGHT, heights.sessions),
+    recording: Math.max(MIN_AGENT_PANEL_HEIGHT, heights.recording),
+  };
+
+  if (expanded.length === 0 || available <= 0) {
+    return next;
+  }
+
+  if (expanded.length === 1) {
+    const only = expanded[0];
+    next[only] = Math.max(MIN_AGENT_PANEL_HEIGHT, available);
+    return next;
+  }
+
+  // 两个都展开：优先保留 preferred 面板高度，剩余全给另一块。
+  const ordered = preferredPanel && expanded.includes(preferredPanel)
+    ? [preferredPanel, ...expanded.filter((panel) => panel !== preferredPanel)]
+    : expanded;
+
+  const primary = ordered[0];
+  const secondary = ordered[1];
+  const maxPrimary = Math.max(MIN_AGENT_PANEL_HEIGHT, available - MIN_AGENT_PANEL_HEIGHT);
+  const primaryHeight = Math.min(
+    maxPrimary,
+    Math.max(MIN_AGENT_PANEL_HEIGHT, next[primary]),
+  );
+  next[primary] = primaryHeight;
+  next[secondary] = Math.max(MIN_AGENT_PANEL_HEIGHT, available - primaryHeight);
+  return next;
+}
+
+function equalSidePanelHeights(
+  maxTotalHeight: number,
+  collapsed: CollapsedSidePanels,
+): SidePanelHeights {
+  const panels = sidePanelKeys();
+  const expanded = panels.filter((panel) => !collapsed[panel]);
+  const available = availableExpandedHeight(maxTotalHeight, collapsed);
+  const next: SidePanelHeights = {
+    sessions: MIN_AGENT_PANEL_HEIGHT,
+    recording: MIN_AGENT_PANEL_HEIGHT,
+  };
+
+  if (expanded.length === 0) return next;
+  if (expanded.length === 1) {
+    next[expanded[0]] = Math.max(MIN_AGENT_PANEL_HEIGHT, available);
+    // 收起的面板记住一半，便于再次展开
+    const remembered = Math.max(MIN_AGENT_PANEL_HEIGHT, Math.floor(available / 2));
+    for (const panel of panels) {
+      if (collapsed[panel]) next[panel] = remembered;
+    }
+    return next;
+  }
+
+  const base = Math.floor(available / expanded.length);
+  let remainder = available - base * expanded.length;
+  for (const panel of expanded) {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    next[panel] = Math.max(MIN_AGENT_PANEL_HEIGHT, base + extra);
+  }
+  return next;
+}
+
 function fitSidePanelHeights(
   heights: SidePanelHeights,
   collapsed: CollapsedSidePanels,
   maxTotalHeight: number,
   preferredPanel?: SidePanelKey,
 ): SidePanelHeights {
-  let next = { ...heights };
-  let overflow = totalSidePanelHeight(next, collapsed) - maxTotalHeight;
-  if (overflow <= 0) return next;
+  // 兼容旧调用名：始终撑满右侧。
+  return fillSidePanelHeights(heights, collapsed, maxTotalHeight, preferredPanel);
+}
 
-  const shrinkOrder: SidePanelKey[] = ["sessions", "context", "recording"].filter(
-    (panel) => panel !== preferredPanel,
-  ) as SidePanelKey[];
-  if (preferredPanel) shrinkOrder.push(preferredPanel);
+type RecordingFilterKind = "all" | "request" | "response" | "navigation" | "page" | "other";
 
-  for (const panel of shrinkOrder) {
-    if (collapsed[panel]) continue;
-    const available = next[panel] - MIN_AGENT_PANEL_HEIGHT;
-    if (available <= 0) continue;
-    const shrink = Math.min(available, overflow);
-    next = { ...next, [panel]: next[panel] - shrink };
-    overflow -= shrink;
-    if (overflow <= 0) break;
-  }
+function recordingEventFilterKind(kind: string): Exclude<RecordingFilterKind, "all"> {
+  if (kind === "request") return "request";
+  if (kind === "response") return "response";
+  if (kind === "navigation") return "navigation";
+  if (kind.startsWith("page_")) return "page";
+  return "other";
+}
 
-  return next;
+function filterRecordingEvents(
+  events: AgentRecordingEvent[],
+  kind: RecordingFilterKind,
+  query: string,
+) {
+  const normalized = query.trim().toLowerCase();
+  return events.filter((event) => {
+    if (kind !== "all" && recordingEventFilterKind(event.kind) !== kind) return false;
+    if (!normalized) return true;
+    const haystack = [
+      event.kind,
+      event.method,
+      event.status != null ? String(event.status) : "",
+      event.resource_type,
+      event.title,
+      event.url,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalized);
+  });
 }
 
 function ResizableAgentPanel({
@@ -1044,12 +1163,15 @@ function ResizableAgentPanel({
   return (
     <section
       className={`panel relative flex min-h-0 flex-col overflow-hidden shadow-none ${
-        fillRemaining && !collapsed ? "flex-1" : "shrink-0"
+        fillRemaining && !collapsed ? "min-h-0 flex-1" : "shrink-0"
       }`}
       style={
         fillRemaining && !collapsed
           ? undefined
-          : { height: collapsed ? COLLAPSED_AGENT_PANEL_HEIGHT : height }
+          : {
+              height: collapsed ? COLLAPSED_AGENT_PANEL_HEIGHT : height,
+              maxHeight: collapsed ? COLLAPSED_AGENT_PANEL_HEIGHT : height,
+            }
       }
     >
       <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line px-3.5">
@@ -1068,7 +1190,7 @@ function ResizableAgentPanel({
         {!collapsed && actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
 
-      {!collapsed ? <div className="scroll-panel min-h-0 min-w-0 flex-1 overflow-x-hidden p-3.5">{children}</div> : null}
+      {!collapsed ? <div className="scroll-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3.5">{children}</div> : null}
 
       {!collapsed && !fillRemaining ? (
         <button
@@ -1107,28 +1229,29 @@ export function AgentPage() {
   const [deleteTarget, setDeleteTarget] = useState<AgentHistorySession | null>(null);
   const [input, setInput] = useState("");
   const [isGeneratingTask, setIsGeneratingTask] = useState(false);
+  const [isRecordingBusy, setIsRecordingBusy] = useState(false);
   const [isResolvingMention, setIsResolvingMention] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [activeMention, setActiveMention] = useState<{ atIndex: number; query: string } | null>(null);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [attachedReferences, setAttachedReferences] = useState<AttachedReference[]>([]);
   const [sidePanelHeights, setSidePanelHeights] = useState<SidePanelHeights>({
-    sessions: 260,
-    context: 340,
-    recording: 300,
+    sessions: 280,
+    recording: 280,
   });
   const [collapsedSidePanels, setCollapsedSidePanels] = useState<CollapsedSidePanels>({
     sessions: false,
-    context: true,
-    recording: true,
+    recording: false,
   });
   const [sidePanelMaxHeight, setSidePanelMaxHeight] = useState(0);
+  const [sidePanelHeightsReady, setSidePanelHeightsReady] = useState(false);
+  const [recordingFilterKind, setRecordingFilterKind] = useState<RecordingFilterKind>("all");
+  const [recordingFilterQuery, setRecordingFilterQuery] = useState("");
   const messages = useAgentRuntimeStore((state) => state.messages);
   const apiMessages = useAgentRuntimeStore((state) => state.apiMessages);
   const isRunning = useAgentRuntimeStore((state) => state.isRunning);
   const isHistoryLoading = useAgentRuntimeStore((state) => state.isHistoryLoading);
   const error = useAgentRuntimeStore((state) => state.error);
-  const context = useAgentRuntimeStore((state) => state.context);
   const recording = useAgentRuntimeStore((state) => state.recording);
   const sessions = useAgentRuntimeStore((state) => state.sessions);
   const appendMessage = useAgentRuntimeStore((state) => state.appendMessage);
@@ -1136,7 +1259,6 @@ export function AgentPage() {
   const patchMessage = useAgentRuntimeStore((state) => state.patchMessage);
   const resetRuntimeConversation = useAgentRuntimeStore((state) => state.resetConversation);
   const setApiMessages = useAgentRuntimeStore((state) => state.setApiMessages);
-  const setContext = useAgentRuntimeStore((state) => state.setContext);
   const setError = useAgentRuntimeStore((state) => state.setError);
   const setIsHistoryLoading = useAgentRuntimeStore((state) => state.setIsHistoryLoading);
   const setIsRunning = useAgentRuntimeStore((state) => state.setIsRunning);
@@ -1208,19 +1330,25 @@ export function AgentPage() {
 
   const activeHistoryKey = environmentId && sessionId ? `${environmentId}:${sessionId}` : "";
 
-  const expandedPanelCount = (Object.keys(collapsedSidePanels) as SidePanelKey[]).filter(
+  const panelKeyList = Object.keys(collapsedSidePanels) as SidePanelKey[];
+  const expandedPanelCount = panelKeyList.filter(
     (panel) => !collapsedSidePanels[panel],
   ).length;
-  const collapsedPanelCount = 3 - expandedPanelCount;
+  // 两个都展开时，拖拽上限需给另一块至少留出最小高度，避免挤没。
   const maxExpandedPanelHeight = Math.max(
     MIN_AGENT_PANEL_HEIGHT,
-    sidePanelMaxHeight - SIDE_PANEL_GAP * 2 - collapsedPanelCount * COLLAPSED_AGENT_PANEL_HEIGHT,
+    availableExpandedHeight(sidePanelMaxHeight, collapsedSidePanels)
+      - (expandedPanelCount > 1 ? MIN_AGENT_PANEL_HEIGHT : 0),
   );
 
   const setSidePanelHeight = (panel: SidePanelKey, height: number) => {
+    if (!sidePanelMaxHeight) return;
     setSidePanelHeights((current) =>
-      fitSidePanelHeights(
-        { ...current, [panel]: clampPanelHeight(height, maxExpandedPanelHeight) },
+      fillSidePanelHeights(
+        {
+          ...current,
+          [panel]: clampPanelHeight(height, maxExpandedPanelHeight),
+        },
         collapsedSidePanels,
         sidePanelMaxHeight,
         panel,
@@ -1229,7 +1357,25 @@ export function AgentPage() {
   };
 
   const toggleSidePanel = (panel: SidePanelKey) => {
-    setCollapsedSidePanels((current) => ({ ...current, [panel]: !current[panel] }));
+    setCollapsedSidePanels((current) => {
+      const nextCollapsed = { ...current, [panel]: !current[panel] };
+      if (sidePanelMaxHeight) {
+        setSidePanelHeights((heights) =>
+          fillSidePanelHeights(
+            {
+              // 展开时尽量沿用原高度偏好，再由 fill 把剩余空间补满。
+              sessions: heights.sessions,
+              recording: heights.recording,
+            },
+            nextCollapsed,
+            sidePanelMaxHeight,
+            // 优先保留刚操作的面板高度
+            panel,
+          ),
+        );
+      }
+      return nextCollapsed;
+    });
   };
 
   const expandSidePanel = (panel: SidePanelKey) => {
@@ -1257,10 +1403,15 @@ export function AgentPage() {
 
   useEffect(() => {
     if (!sidePanelMaxHeight) return;
+    if (!sidePanelHeightsReady) {
+      setSidePanelHeights(equalSidePanelHeights(sidePanelMaxHeight, collapsedSidePanels));
+      setSidePanelHeightsReady(true);
+      return;
+    }
     setSidePanelHeights((current) =>
-      fitSidePanelHeights(current, collapsedSidePanels, sidePanelMaxHeight),
+      fillSidePanelHeights(current, collapsedSidePanels, sidePanelMaxHeight),
     );
-  }, [collapsedSidePanels, sidePanelMaxHeight]);
+  }, [collapsedSidePanels, sidePanelHeightsReady, sidePanelMaxHeight]);
 
   useEffect(() => {
     if (!environmentId || !selectedEnvironment) return;
@@ -1462,6 +1613,59 @@ export function AgentPage() {
     }, 12);
     return () => window.clearInterval(timer);
   }, [patchMessage]);
+
+  // 切换环境时同步该环境的录制状态。
+  useEffect(() => {
+    if (!selectedEnvironment) {
+      setRecording(null);
+      return;
+    }
+
+    let cancelled = false;
+    void browserApi
+      .agentGetBrowserRecording(selectedEnvironment.id)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.is_recording || result.total_events > 0 || result.started_at) {
+          setRecording(result);
+        } else {
+          setRecording(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRecording(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEnvironment?.id, setRecording]);
+
+  // 录制中轮询最新事件，保证侧栏实时刷新。
+  useEffect(() => {
+    if (!selectedEnvironment || !recording?.is_recording) return;
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const result = await browserApi.agentGetBrowserRecording(selectedEnvironment.id);
+        if (cancelled) return;
+        setRecording(result);
+      } catch {
+        // 轮询失败时保留现有摘要，避免侧栏闪断。
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    void refresh();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [recording?.is_recording, selectedEnvironment?.id, setRecording]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -1781,8 +1985,6 @@ ${preview}`,
         label || undefined,
       );
       throwIfStopped();
-      setContext(result as BrowserContextSnapshot);
-      expandSidePanel("context");
       const { artifact, warning: artifactWarning } = await saveToolArtifactBestEffort(
         environmentId,
         sessionId,
@@ -1834,8 +2036,6 @@ ${preview}`,
 
     throwIfStopped();
     if (action === "context" || action === "goto" || action === "click" || action === "type" || action === "wait") {
-      setContext(result as BrowserContextSnapshot);
-      expandSidePanel("context");
     }
     const { artifact, warning: artifactWarning } = await saveToolArtifactBestEffort(
       environmentId,
@@ -1858,7 +2058,6 @@ ${preview}`,
   const streamOnce = async (
     settings: Settings,
     history: OpenAIMessage[],
-    toolTurn = 0,
   ): Promise<OpenAIMessage[]> => {
     const signal = agentRuntimeRefs.abort?.signal;
     throwIfStopped(signal);
@@ -1950,18 +2149,6 @@ ${preview}`,
       return nextHistory;
     }
 
-    if (toolTurn >= MAX_AGENT_TOOL_TURNS) {
-      const limitMessage: OpenAIMessage = {
-        role: "assistant",
-        content: `工具调用已达到 ${MAX_AGENT_TOOL_TURNS} 轮上限。请用户确认下一步或缩小任务范围。`,
-      };
-      patchMessage(assistantId, (message) => ({
-        ...message,
-        content: String(limitMessage.content),
-      }));
-      return [...nextHistory, limitMessage];
-    }
-
     const toolMessages: OpenAIMessage[] = [];
     for (const call of toolCalls) {
       throwIfStopped(signal);
@@ -1986,7 +2173,7 @@ ${preview}`,
     }
 
     throwIfStopped(signal);
-    return streamOnce(settings, [...nextHistory, ...toolMessages], toolTurn + 1);
+    return streamOnce(settings, [...nextHistory, ...toolMessages]);
   };
 
   const persistRuntimeSnapshot = async () => {
@@ -2110,7 +2297,6 @@ ${preview}`,
     setAttachedReferences([]);
     setActiveMention(null);
     setError(null);
-    setContext(null);
     window.requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -2144,7 +2330,6 @@ ${preview}`,
       setSessionId(nextSessionId);
       resetRuntimeConversation();
       setError(null);
-      setContext(null);
       setDeleteTarget(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -2421,24 +2606,108 @@ log.info("message");
     }
   };
 
-  const refreshContext = async () => {
-    if (!selectedEnvironment) return;
-    const result = await browserApi.agentBrowserAction({
-      environment_id: selectedEnvironment.id,
-      action: "context",
-      include_screenshot: false,
-    });
-    setContext(result as BrowserContextSnapshot);
-    expandSidePanel("context");
-  };
 
   const toggleRecording = async () => {
-    if (!selectedEnvironment) return;
-    const result = recording?.is_recording
-      ? await browserApi.agentStopBrowserRecording(selectedEnvironment.id)
-      : await browserApi.agentStartBrowserRecording(selectedEnvironment.id);
-    setRecording(result);
-    expandSidePanel("recording");
+    if (!selectedEnvironment || isRecordingBusy) return;
+    setIsRecordingBusy(true);
+    setError(null);
+    try {
+      const result = recording?.is_recording
+        ? await browserApi.agentStopBrowserRecording(selectedEnvironment.id)
+        : await browserApi.agentStartBrowserRecording(selectedEnvironment.id);
+      setRecording(result);
+      expandSidePanel("recording");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsRecordingBusy(false);
+    }
+  };
+
+  const refreshRecording = async () => {
+    if (!selectedEnvironment || isRecordingBusy) return;
+    setIsRecordingBusy(true);
+    setError(null);
+    try {
+      const result = await browserApi.agentGetBrowserRecording(selectedEnvironment.id);
+      if (result.is_recording || result.total_events > 0 || result.started_at) {
+        setRecording(result);
+      } else {
+        setRecording(null);
+      }
+      expandSidePanel("recording");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsRecordingBusy(false);
+    }
+  };
+
+  const clearRecording = async () => {
+    if (!selectedEnvironment || isRecordingBusy) return;
+    setIsRecordingBusy(true);
+    setError(null);
+    try {
+      const result = await browserApi.agentClearBrowserRecording(selectedEnvironment.id);
+      if (result.is_recording || result.total_events > 0 || result.started_at) {
+        setRecording(result);
+      } else {
+        setRecording(null);
+      }
+      setRecordingFilterQuery("");
+      setRecordingFilterKind("all");
+      expandSidePanel("recording");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsRecordingBusy(false);
+    }
+  };
+
+  const filteredRecordingEvents = useMemo(() => {
+    if (!recording?.events?.length) return [] as AgentRecordingEvent[];
+    return filterRecordingEvents(recording.events, recordingFilterKind, recordingFilterQuery);
+  }, [recording?.events, recordingFilterKind, recordingFilterQuery]);
+
+  const attachRecordingReference = (
+    event?: AgentRecordingEvent,
+    eventsOverride?: AgentRecordingEvent[],
+  ) => {
+    if (!recording) return;
+    const content = event
+      ? buildRecordingReference(recording, event)
+      : buildRecordingReference({
+          ...recording,
+          events: eventsOverride ?? recording.events,
+          total_events: (eventsOverride ?? recording.events).length,
+          total_requests: (eventsOverride ?? recording.events).filter((item) => item.kind === "request").length,
+          total_responses: (eventsOverride ?? recording.events).filter((item) => item.kind === "response").length,
+        });
+    const labelBase = event
+      ? `${text.mentionRecording} ${event.kind}`
+      : `${text.mentionRecording} ${(eventsOverride ?? recording.events).length}`;
+    const token = `@${labelBase}`;
+    const id = event
+      ? `recording-event:${recording.environment_id}:${event.timestamp}:${event.kind}:${event.url ?? ""}`
+      : `recording:${recording.environment_id}:${recording.started_at ?? "latest"}:${recordingFilterKind}:${recordingFilterQuery}`;
+    setAttachedReferences((current) => [
+      ...current.filter((item) => item.id !== id),
+      {
+        id,
+        label: token,
+        detail: event
+          ? formatRecordingEventSummary(event)
+          : `${text.recording} · ${recording.is_recording ? text.recordingActive : text.recordingStopped} · ${(eventsOverride ?? recording.events).length}`,
+        content,
+      },
+    ]);
+    setInput((current) => {
+      const trimmed = current.trimEnd();
+      if (!trimmed) return `${token} `;
+      if (trimmed.includes(token)) return current;
+      return `${trimmed} ${token} `;
+    });
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   useEffect(() => {
@@ -2482,22 +2751,17 @@ log.info("message");
         </Button>
 
         <Button
-          icon={<FileSearch className="h-4 w-4" />}
-          onClick={refreshContext}
-          disabled={!selectedEnvironment}
-        >
-          {text.readContext}
-        </Button>
-        <Button
           icon={
-            recording?.is_recording ? (
+            isRecordingBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : recording?.is_recording ? (
               <CircleStop className="h-4 w-4" />
             ) : (
               <Radio className="h-4 w-4" />
             )
           }
           onClick={toggleRecording}
-          disabled={!selectedEnvironment}
+          disabled={!selectedEnvironment || isRecordingBusy}
           variant={recording?.is_recording ? "danger" : "primary"}
         >
           {recording?.is_recording ? text.stopRecording : text.startRecording}
@@ -2513,11 +2777,11 @@ log.info("message");
     isRunning,
     messages.length,
     isGeneratingTask,
+    isRecordingBusy,
     recording?.is_recording,
     setHeaderActions,
     text.generateTask,
     text.newSession,
-    text.readContext,
     text.startRecording,
     text.stopRecording,
   ]);
@@ -2852,7 +3116,7 @@ log.info("message");
               </Button>
             }
             collapsed={collapsedSidePanels.sessions}
-            fillRemaining
+            fillRemaining={!collapsedSidePanels.sessions && collapsedSidePanels.recording}
             height={sidePanelHeights.sessions}
             icon={<MessageSquareText className="h-4 w-4 shrink-0 text-brand-600" />}
             maxHeight={maxExpandedPanelHeight}
@@ -2868,7 +3132,7 @@ log.info("message");
             ) : sessions.length === 0 ? (
               <p className="text-sm text-ink-500">{text.noSessions}</p>
             ) : (
-              <div className="grid min-w-0 gap-1 overflow-hidden">
+              <div className="grid min-h-0 min-w-0 gap-1 overflow-y-auto">
                 {sessions.map((session) => {
                   const active = session.session_id === sessionId;
                   return (
@@ -2920,44 +3184,10 @@ log.info("message");
             ) : null}
           </ResizableAgentPanel>
 
-          <ResizableAgentPanel
-            collapsed={collapsedSidePanels.context}
-            height={sidePanelHeights.context}
-            icon={<FileSearch className="h-4 w-4 shrink-0 text-brand-600" />}
-            maxHeight={maxExpandedPanelHeight}
-            onHeightChange={(height) => setSidePanelHeight("context", height)}
-            onToggle={() => toggleSidePanel("context")}
-            title={text.context}
-          >
-            {context ? (
-              <div className="grid gap-3 text-xs text-ink-600">
-                <div className="border-b border-line pb-3">
-                  <p className="font-semibold text-ink-900">{context.title || "-"}</p>
-                  <p className="selectable mt-1 break-all text-ink-500">{context.url}</p>
-                </div>
-                <div>
-                  <p className="mb-2 font-semibold text-ink-900">{text.elements}</p>
-                  <div className="min-w-0 divide-y divide-line overflow-hidden rounded-lg border border-line">
-                    {context.interactive_elements.slice(0, 8).map((item) => (
-                      <div key={`${item.kind}-${item.selector}`} className="px-3 py-2">
-                        <p className="font-medium text-ink-800">{item.label || item.kind}</p>
-                        <p className="selectable mt-1 break-all font-mono text-[11px] text-ink-500">{item.selector}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-2 font-semibold text-ink-900">{text.visibleText}</p>
-                  <p className="selectable max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-ink-50 p-3 leading-5">{context.visible_text || "-"}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-ink-500">{text.noContext}</p>
-            )}
-          </ResizableAgentPanel>
 
           <ResizableAgentPanel
             collapsed={collapsedSidePanels.recording}
+            fillRemaining={!collapsedSidePanels.recording}
             height={sidePanelHeights.recording}
             icon={<Network className="h-4 w-4 shrink-0 text-brand-600" />}
             maxHeight={maxExpandedPanelHeight}
@@ -2966,23 +3196,137 @@ log.info("message");
             title={text.recording}
           >
             {recording ? (
-              <div className="grid gap-2 text-xs">
-                <div className="flex items-center justify-between rounded-lg bg-ink-50 px-3 py-2">
-                  <span className="text-ink-600">{recording.is_recording ? text.recordingActive : text.recordingStopped}</span>
-                  <span className="font-semibold text-ink-900">{recording.total_events}</span>
-                </div>
-                {recording.events.slice(-10).reverse().map((event, index) => (
-                  <div key={`${event.timestamp}-${index}`} className="border-b border-line px-1 py-2 last:border-b-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-ink-800">{event.kind}</span>
-                      <span className="text-ink-500">{formatDateTime(event.timestamp, language)}</span>
-                    </div>
-                    <p className="selectable mt-1 break-all text-ink-600">{event.method ? `${event.method} ` : ""}{event.status ? `${event.status} ` : ""}{event.url || event.resource_type || "-"}</p>
+              <div className="flex h-full min-h-0 flex-col gap-2 text-xs">
+                <div className="shrink-0 rounded-lg border border-line bg-ink-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`font-semibold ${recording.is_recording ? "text-danger" : "text-ink-700"}`}>
+                      {recording.is_recording ? text.recordingActive : text.recordingStopped}
+                    </span>
+                    <span className="font-semibold text-ink-900">
+                      {text.recordingEventCount.replace("{{count}}", String(recording.total_events))}
+                    </span>
                   </div>
-                ))}
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-ink-600">
+                    <span>{text.recordingRequests}: {recording.total_requests}</span>
+                    <span>{text.recordingResponses}: {recording.total_responses}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Button
+                      disabled={isRecordingBusy || !selectedEnvironment}
+                      onClick={() => void refreshRecording()}
+                      size="sm"
+                      type="button"
+                    >
+                      {text.recordingRefresh}
+                    </Button>
+                    <Button
+                      disabled={isRecordingBusy || !selectedEnvironment || (!recording.events.length && !recording.is_recording)}
+                      onClick={() => void clearRecording()}
+                      size="sm"
+                      type="button"
+                    >
+                      {text.recordingClear}
+                    </Button>
+                    <Button
+                      disabled={!filteredRecordingEvents.length}
+                      onClick={() => attachRecordingReference(undefined, filteredRecordingEvents)}
+                      size="sm"
+                      type="button"
+                      variant="primary"
+                    >
+                      {recordingFilterKind === "all" && !recordingFilterQuery.trim()
+                        ? text.recordingAttachAll
+                        : text.recordingAttachFiltered}
+                    </Button>
+                    <Button
+                      disabled={!selectedEnvironment || isRecordingBusy}
+                      onClick={() => void toggleRecording()}
+                      size="sm"
+                      type="button"
+                      variant={recording.is_recording ? "danger" : "primary"}
+                    >
+                      {recording.is_recording ? text.stopRecording : text.startRecording}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="shrink-0 grid gap-2">
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        ["all", text.recordingFilterAll],
+                        ["request", text.recordingFilterRequest],
+                        ["response", text.recordingFilterResponse],
+                        ["navigation", text.recordingFilterNavigation],
+                        ["page", text.recordingFilterPage],
+                        ["other", text.recordingFilterOther],
+                      ] as Array<[RecordingFilterKind, string]>
+                    ).map(([kind, label]) => (
+                      <button
+                        className={`control-focus rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                          recordingFilterKind === kind
+                            ? "border-brand-200 bg-brand-50 text-brand-700"
+                            : "border-line bg-white text-ink-600 hover:bg-ink-50 hover:text-ink-900"
+                        }`}
+                        key={kind}
+                        onClick={() => setRecordingFilterKind(kind)}
+                        type="button"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    className="control-focus h-8 w-full rounded-lg border border-line bg-white px-2.5 text-xs text-ink-900 outline-none placeholder:text-ink-500"
+                    onChange={(event) => setRecordingFilterQuery(event.target.value)}
+                    placeholder={text.recordingSearchPlaceholder}
+                    value={recordingFilterQuery}
+                  />
+                </div>
+
+                {recording.events.length ? (
+                  filteredRecordingEvents.length ? (
+                    <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto rounded-lg border border-line">
+                      {[...filteredRecordingEvents].reverse().map((event, index) => (
+                        <button
+                          className="control-focus block w-full px-3 py-2 text-left transition-colors hover:bg-ink-50"
+                          key={`${event.timestamp}-${event.kind}-${event.url ?? ""}-${index}`}
+                          onClick={() => attachRecordingReference(event)}
+                          title={text.recordingAttachEvent}
+                          type="button"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-ink-800">{event.kind}</span>
+                            <span className="shrink-0 text-ink-500">{formatDateTime(event.timestamp, language)}</span>
+                          </div>
+                          <p className="selectable mt-1 break-all text-ink-600">
+                            {formatRecordingEventSummary(event)}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-ink-500">{text.recordingEmptyFilter}</p>
+                  )
+                ) : (
+                  <p className="text-sm text-ink-500">
+                    {recording.is_recording ? text.recordingWaiting : text.noRecording}
+                  </p>
+                )}
               </div>
             ) : (
-              <p className="text-sm text-ink-500">{text.noRecording}</p>
+              <div className="grid gap-3">
+                <p className="text-sm text-ink-500">{text.noRecording}</p>
+                <Button
+                  disabled={!selectedEnvironment || isRecordingBusy}
+                  icon={isRecordingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />}
+                  onClick={() => void toggleRecording()}
+                  type="button"
+                  variant="primary"
+                >
+                  {text.startRecording}
+                </Button>
+              </div>
             )}
           </ResizableAgentPanel>
         </aside>

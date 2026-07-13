@@ -743,6 +743,36 @@ fn recording_event_from_cdp(value: &Value) -> Option<AgentRecordingEvent> {
                 timestamp,
             })
         }
+        "Page.frameNavigated" => {
+            let frame = value.pointer("/params/frame");
+            let parent_id = frame
+                .and_then(|frame| frame.get("parentId"))
+                .and_then(Value::as_str);
+            // 仅记录主 frame，避免 iframe 噪声。
+            if parent_id.is_some() {
+                return None;
+            }
+            let url = frame
+                .and_then(|frame| frame.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if url.is_empty() {
+                return None;
+            }
+            Some(AgentRecordingEvent {
+                kind: "navigation".to_string(),
+                method: None,
+                url: Some(url.to_string()),
+                status: None,
+                resource_type: None,
+                title: frame
+                    .and_then(|frame| frame.get("name"))
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                    .map(ToString::to_string),
+                timestamp,
+            })
+        }
         "Page.loadEventFired" | "Page.domContentEventFired" => Some(AgentRecordingEvent {
             kind: method
                 .replace("Page.", "page_")
@@ -756,5 +786,76 @@ fn recording_event_from_cdp(value: &Value) -> Option<AgentRecordingEvent> {
             timestamp,
         }),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn records_main_frame_navigation_events() {
+        let event = recording_event_from_cdp(&json!({
+            "method": "Page.frameNavigated",
+            "params": {
+                "frame": {
+                    "id": "frame-1",
+                    "url": "https://example.com/path",
+                    "name": ""
+                }
+            }
+        }))
+        .expect("navigation event");
+        assert_eq!(event.kind, "navigation");
+        assert_eq!(event.url.as_deref(), Some("https://example.com/path"));
+    }
+
+    #[test]
+    fn ignores_iframe_navigation_events() {
+        let event = recording_event_from_cdp(&json!({
+            "method": "Page.frameNavigated",
+            "params": {
+                "frame": {
+                    "id": "frame-2",
+                    "parentId": "frame-1",
+                    "url": "https://ads.example.com"
+                }
+            }
+        }));
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn records_filtered_network_request_events() {
+        let event = recording_event_from_cdp(&json!({
+            "method": "Network.requestWillBeSent",
+            "params": {
+                "type": "Document",
+                "request": {
+                    "url": "https://example.com/api",
+                    "method": "POST"
+                }
+            }
+        }))
+        .expect("request event");
+        assert_eq!(event.kind, "request");
+        assert_eq!(event.method.as_deref(), Some("POST"));
+        assert_eq!(event.url.as_deref(), Some("https://example.com/api"));
+    }
+
+    #[test]
+    fn skips_data_url_network_events() {
+        let event = recording_event_from_cdp(&json!({
+            "method": "Network.responseReceived",
+            "params": {
+                "type": "Image",
+                "response": {
+                    "url": "data:image/png;base64,abc",
+                    "status": 200
+                }
+            }
+        }));
+        assert!(event.is_none());
     }
 }

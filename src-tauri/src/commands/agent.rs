@@ -27,8 +27,31 @@ const LEGACY_SESSION_ID: &str = "default";
 #[derive(Clone)]
 struct RecordingHandle {
     started_at: String,
+    stopped_at: Arc<Mutex<Option<String>>>,
     stop: Arc<AtomicBool>,
     events: Arc<Mutex<Vec<AgentRecordingEvent>>>,
+}
+
+impl RecordingHandle {
+    fn is_active(&self) -> bool {
+        !self.stop.load(Ordering::Relaxed)
+    }
+
+    fn mark_stopped(&self, stopped_at: Option<String>) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut value) = self.stopped_at.lock() {
+            if value.is_none() {
+                *value = stopped_at.or_else(|| Some(Utc::now().to_rfc3339()));
+            }
+        }
+    }
+
+    fn stopped_at_value(&self) -> Option<String> {
+        self.stopped_at
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+    }
 }
 
 static RECORDINGS: OnceLock<Mutex<HashMap<String, RecordingHandle>>> = OnceLock::new();
@@ -465,7 +488,9 @@ pub async fn agent_start_browser_recording(
         .ok()
         .and_then(|map| map.get(&environment_id).cloned())
     {
-        return Ok(summary(&environment_id, &existing, true, None));
+        if existing.is_active() {
+            return Ok(summary_from_handle(&environment_id, &existing));
+        }
     }
 
     let mut page = page_for_environment(&state, &environment_id).await?;
@@ -474,6 +499,7 @@ pub async fn agent_start_browser_recording(
     let events = Arc::new(Mutex::new(Vec::new()));
     let handle = RecordingHandle {
         started_at: started_at.clone(),
+        stopped_at: Arc::new(Mutex::new(None)),
         stop: stop.clone(),
         events: events.clone(),
     };
@@ -484,6 +510,7 @@ pub async fn agent_start_browser_recording(
         .insert(environment_id.clone(), handle.clone());
 
     let task_environment_id = environment_id.clone();
+    let task_handle = handle.clone();
     let task_stop = stop.clone();
     tokio::spawn(async move {
         while !task_stop.load(Ordering::Relaxed) {
@@ -506,14 +533,17 @@ pub async fn agent_start_browser_recording(
             }
         }
 
-        if !task_stop.load(Ordering::Relaxed) {
-            if let Ok(mut map) = recordings().lock() {
-                map.remove(&task_environment_id);
-            }
+        // 保留最近一次录制摘要，便于前端轮询与停止后回看。
+        if task_handle.is_active() {
+            task_handle.mark_stopped(None);
+            tracing::warn!(
+                environment_id = %task_environment_id,
+                "AI Agent browser recording ended unexpectedly"
+            );
         }
     });
 
-    Ok(summary(&environment_id, &handle, true, None))
+    Ok(summary_from_handle(&environment_id, &handle))
 }
 
 #[tauri::command]
@@ -521,15 +551,56 @@ pub fn agent_stop_browser_recording(environment_id: String) -> AppResult<AgentRe
     let handle = recordings()
         .lock()
         .map_err(|_| AppError::new("agent_recording_failed", "Recording registry is locked"))?
-        .remove(&environment_id)
+        .get(&environment_id)
+        .cloned()
         .ok_or_else(|| AppError::new("agent_recording_not_found", "Recording is not active"))?;
-    handle.stop.store(true, Ordering::Relaxed);
-    Ok(summary(
-        &environment_id,
-        &handle,
-        false,
-        Some(Utc::now().to_rfc3339()),
-    ))
+
+    if !handle.is_active() {
+        return Ok(summary_from_handle(&environment_id, &handle));
+    }
+
+    handle.mark_stopped(Some(Utc::now().to_rfc3339()));
+    Ok(summary_from_handle(&environment_id, &handle))
+}
+
+#[tauri::command]
+pub fn agent_clear_browser_recording(environment_id: String) -> AppResult<AgentRecordingSummary> {
+    let mut map = recordings()
+        .lock()
+        .map_err(|_| AppError::new("agent_recording_failed", "Recording registry is locked"))?;
+
+    let Some(handle) = map.get(&environment_id).cloned() else {
+        return Ok(AgentRecordingSummary {
+            environment_id,
+            is_recording: false,
+            started_at: None,
+            stopped_at: None,
+            total_events: 0,
+            total_requests: 0,
+            total_responses: 0,
+            events: Vec::new(),
+        });
+    };
+
+    // 已停止的录制直接丢弃；录制中仅清空事件，保持会话继续。
+    if !handle.is_active() {
+        map.remove(&environment_id);
+        return Ok(AgentRecordingSummary {
+            environment_id,
+            is_recording: false,
+            started_at: None,
+            stopped_at: None,
+            total_events: 0,
+            total_requests: 0,
+            total_responses: 0,
+            events: Vec::new(),
+        });
+    }
+
+    if let Ok(mut items) = handle.events.lock() {
+        items.clear();
+    }
+    Ok(summary_from_handle(&environment_id, &handle))
 }
 
 #[tauri::command]
@@ -551,7 +622,7 @@ pub fn agent_get_browser_recording(environment_id: String) -> AppResult<AgentRec
             events: Vec::new(),
         });
     };
-    Ok(summary(&environment_id, &handle, true, None))
+    Ok(summary_from_handle(&environment_id, &handle))
 }
 
 async fn page_for_environment(state: &AppState, environment_id: &str) -> AppResult<BrowserPage> {
@@ -576,11 +647,9 @@ fn required_option(value: Option<String>, name: &str) -> AppResult<String> {
         .ok_or_else(|| AppError::new("invalid_input", format!("Missing required field: {name}")))
 }
 
-fn summary(
+fn summary_from_handle(
     environment_id: &str,
     handle: &RecordingHandle,
-    is_recording: bool,
-    stopped_at: Option<String>,
 ) -> AgentRecordingSummary {
     let events = handle
         .events
@@ -591,9 +660,9 @@ fn summary(
     let total_responses = events.iter().filter(|item| item.kind == "response").count();
     AgentRecordingSummary {
         environment_id: environment_id.to_string(),
-        is_recording,
+        is_recording: handle.is_active(),
         started_at: Some(handle.started_at.clone()),
-        stopped_at,
+        stopped_at: handle.stopped_at_value(),
         total_events: events.len(),
         total_requests,
         total_responses,

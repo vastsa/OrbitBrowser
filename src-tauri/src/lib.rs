@@ -108,6 +108,7 @@ pub fn run() {
             commands::agent::agent_start_browser_recording,
             commands::agent::agent_stop_browser_recording,
             commands::agent::agent_get_browser_recording,
+            commands::agent::agent_clear_browser_recording,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run orbit browser");

@@ -83,6 +83,7 @@ export const COMMANDS = {
   agentStartBrowserRecording: "agent_start_browser_recording",
   agentStopBrowserRecording: "agent_stop_browser_recording",
   agentGetBrowserRecording: "agent_get_browser_recording",
+  agentClearBrowserRecording: "agent_clear_browser_recording",
 } as const;
 
 export type TauriCommand = (typeof COMMANDS)[keyof typeof COMMANDS];
@@ -507,6 +508,17 @@ function mockInvoke<TResult>(
           },
         ],
       } as TResult;
+    case COMMANDS.agentClearBrowserRecording:
+      return {
+        environment_id: String(args?.environmentId ?? "preview"),
+        is_recording: false,
+        started_at: null,
+        stopped_at: null,
+        total_events: 0,
+        total_requests: 0,
+        total_responses: 0,
+        events: [],
+      } as TResult;
     case COMMANDS.agentStopBrowserRecording:
       return {
         environment_id: String(args?.environmentId ?? "preview"),
@@ -832,6 +844,11 @@ export const browserApi = {
 
   agentGetBrowserRecording: (environmentId: string) =>
     invokeCommand<AgentRecordingSummary>(COMMANDS.agentGetBrowserRecording, {
+      environmentId,
+    }),
+
+  agentClearBrowserRecording: (environmentId: string) =>
+    invokeCommand<AgentRecordingSummary>(COMMANDS.agentClearBrowserRecording, {
       environmentId,
     }),
 };
