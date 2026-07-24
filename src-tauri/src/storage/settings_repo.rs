@@ -18,8 +18,8 @@ pub fn get(db: &Db) -> AppResult<Settings> {
         [],
         |row| {
             Ok(Settings {
-                chrome_path: row.get(0)?,
-                camoufox_python_path: row.get(1)?,
+                chrome_path: normalize_optional(row.get(0)?),
+                camoufox_python_path: normalize_optional(row.get(1)?),
                 default_concurrency: row.get(2)?,
                 default_locale: row.get(3)?,
                 default_timezone_id: row.get(4)?,
@@ -57,7 +57,7 @@ pub fn save(db: &Db, input: SaveSettingsInput) -> AppResult<Settings> {
         WHERE id = 1
         "#,
         params![
-            input.chrome_path,
+            normalize_optional(input.chrome_path),
             normalize_optional(input.camoufox_python_path),
             input.default_concurrency.max(1),
             input.default_locale,
@@ -147,3 +147,4 @@ mod tests {
         Ok(())
     }
 }
+

@@ -109,8 +109,9 @@ export function SettingsPage() {
   const detectMutation = useMutation({
     mutationFn: browserApi.detectChrome,
     onSuccess: (result) => {
-      if (result.path) {
-        applySettingsAndSaveImmediately({ chrome_path: result.path });
+      const nextPath = result.found ? result.path?.trim() : "";
+      if (nextPath) {
+        applySettingsAndSaveImmediately({ chrome_path: nextPath });
       }
     },
   });

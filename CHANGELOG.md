@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1
+
+- Hardened Chrome detection on macOS: resolve `.app` bundles, read Info.plist versions without launching Chrome, expand Canary/Beta/Edge/Brave/Homebrew candidates, and treat launchable binaries as found even when `--version` is flaky.
+- Auto-persist a detected Chrome path when settings are empty, normalize blank paths to unset, and stop environment health from reporting missing Chrome when auto-detection succeeds.
 - Hardened Chrome CDP stealth: uncommon loopback ports, exclude automation switches, and Page-level webdriver/CDP residue patches on every target.
 - Avoid Chrome's unsupported-flag infobar by not launching with --disable-blink-features=AutomationControlled.
 - Optimized the AI Agent composer input path and made Enter send messages by default.

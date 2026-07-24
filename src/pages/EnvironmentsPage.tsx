@@ -808,10 +808,19 @@ export function EnvironmentsPage() {
       const proxyResult = proxyResults[environment.id];
       const successRate = recentSuccessRate(environment, runs);
       const issues: string[] = [];
+      const hasConfiguredChrome = Boolean(
+        settingsQuery.data?.chrome_path?.trim() ||
+          environment.chrome_path_override?.trim(),
+      );
+      const chromeAutoDetected = Boolean(
+        diagnosticsQuery.data?.chrome?.found ||
+          diagnosticsQuery.data?.chrome?.path,
+      );
+      // 仅在“设置/覆盖路径都没有，且诊断也检测不到”时提示缺失。
       if (
         environment.browser_kind !== "camoufox" &&
-        !settingsQuery.data?.chrome_path &&
-        !environment.chrome_path_override
+        !hasConfiguredChrome &&
+        !chromeAutoDetected
       ) {
         issues.push(text.health.chromeMissing);
       }

@@ -52,7 +52,35 @@ impl CamoufoxInstallProgressEvent {
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
-    settings_repo::get(state.db())
+    let mut settings = settings_repo::get(state.db())?;
+    // 未配置 Chrome 路径时自动检测并持久化，避免环境页误报“未配置/检测不到”。
+    if settings
+        .chrome_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        let detection = chrome_locator::detect();
+        if let Some(path) = detection.path.filter(|value| !value.trim().is_empty()) {
+            settings = settings_repo::save(
+                state.db(),
+                SaveSettingsInput {
+                    chrome_path: Some(path),
+                    camoufox_python_path: settings.camoufox_python_path.clone(),
+                    default_concurrency: settings.default_concurrency,
+                    default_locale: settings.default_locale.clone(),
+                    default_timezone_id: settings.default_timezone_id.clone(),
+                    default_viewport_width: settings.default_viewport_width,
+                    default_viewport_height: settings.default_viewport_height,
+                    aigc_base_url: settings.aigc_base_url.clone(),
+                    aigc_model: settings.aigc_model.clone(),
+                    aigc_api_key: settings.aigc_api_key.clone(),
+                },
+            )?;
+        }
+    }
+    Ok(settings)
 }
 
 #[tauri::command]

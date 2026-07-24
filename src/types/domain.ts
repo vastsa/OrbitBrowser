@@ -390,8 +390,10 @@ export interface CleanupResult {
 
 export interface Diagnostics {
   chrome?: {
+    found?: boolean;
     path?: string | null;
     version?: string | null;
+    searched_paths?: string[];
     launchable?: boolean;
     cdp_test_ok?: boolean;
     error?: string | null;
